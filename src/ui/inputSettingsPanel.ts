@@ -7,6 +7,7 @@ export class InputSettingsPanel {
   private readonly mouseSensitivity = requireElement<HTMLInputElement>("mouse-sensitivity");
   private readonly touchSensitivity = requireElement<HTMLInputElement>("touch-sensitivity");
   private readonly leftHanded = requireElement<HTMLInputElement>("left-handed-controls");
+  private readonly aimAssist = requireElement<HTMLInputElement>("aim-assist");
   private readonly mouseValue = requireElement<HTMLOutputElement>("mouse-sensitivity-value");
   private readonly touchValue = requireElement<HTMLOutputElement>("touch-sensitivity-value");
   private readonly resumeButton = requireElement<HTMLButtonElement>("resume-button");
@@ -19,10 +20,12 @@ export class InputSettingsPanel {
     this.mouseSensitivity.value = String(settings.mouseSensitivity);
     this.touchSensitivity.value = String(settings.touchSensitivity);
     this.leftHanded.checked = settings.leftHanded;
+    this.aimAssist.checked = settings.aimAssist;
     this.refreshLabels();
     this.mouseSensitivity.addEventListener("input", this.onInput);
     this.touchSensitivity.addEventListener("input", this.onInput);
     this.leftHanded.addEventListener("change", this.onInput);
+    this.aimAssist.addEventListener("change", this.onInput);
     this.resumeButton.addEventListener("click", this.onResumeClicked);
   }
 
@@ -30,6 +33,7 @@ export class InputSettingsPanel {
     this.mouseSensitivity.removeEventListener("input", this.onInput);
     this.touchSensitivity.removeEventListener("input", this.onInput);
     this.leftHanded.removeEventListener("change", this.onInput);
+    this.aimAssist.removeEventListener("change", this.onInput);
     this.resumeButton.removeEventListener("click", this.onResumeClicked);
   }
 
@@ -39,6 +43,7 @@ export class InputSettingsPanel {
       mouseSensitivity: this.mouseSensitivity.valueAsNumber,
       touchSensitivity: this.touchSensitivity.valueAsNumber,
       leftHanded: this.leftHanded.checked,
+      aimAssist: this.aimAssist.checked,
     });
   };
 

@@ -58,8 +58,9 @@ Input is exposed to gameplay only as the device-independent `move`, `look`, `fir
 pointer type, so hybrid devices can switch between mouse and touch without reloading. Losing focus
 or hiding the tab pauses the game automatically.
 
-The pause panel contains independent mouse and touch sensitivity controls plus a left-handed mode.
-The latter swaps the movement/look sides and action buttons. These settings are saved locally. The
+The pause panel contains independent mouse and touch sensitivity controls, a left-handed mode, and
+an optional weak mobile aim assist. The left-handed option swaps the movement/look sides and action
+buttons. These settings are saved locally. Touch camera input uses light low-latency smoothing. The
 touch layout accounts for safe-area insets, suppresses browser gestures over the game canvas, and
 recommends landscape orientation.
 
@@ -91,8 +92,26 @@ to prevent a spiral of death. Rendering remains variable-rate. Low-core or low-m
 a higher Babylon hardware scaling level to reduce the internal render resolution.
 
 Procedural layouts use a seeded PRNG, bounded placement attempts, reserved entrance and exit zones,
-overlap rejection, a grid path check, and a known-safe fallback. Solid obstacle height and logical
-collision checks prevent the foundation player controller from crossing them.
+overlap rejection, a grid path check, and a known-safe fallback.
+
+Player motion uses Babylon's Havok-backed capsule character controller. Acceleration and
+deceleration are calculated in device-independent game logic, then applied through fixed-step
+capsule shape casts. Walls, obstacles, and room doors have static Havok bodies. The strict step
+height prevents the rounded capsule from climbing tall obstacles, and jumping is intentionally
+disabled. Render interpolation keeps camera motion smooth when display FPS differs from the 60 Hz
+simulation rate.
+
+## Physics test and debug mode
+
+Open the development URL with the following query parameters:
+
+```text
+/?physicsTestRoom=1&debugPhysics=1
+```
+
+`physicsTestRoom=1` selects a deterministic room with a centered doorway, a low step, a tall crate,
+and two barriers. `debugPhysics=1` overlays the player capsule and all active Havok bodies, including
+door colliders. Both flags can also be enabled through `GAME_CONFIG.debug`.
 
 ## Assets
 

@@ -14,7 +14,8 @@ export class TouchInput implements InputSource {
     private readonly canvas: HTMLCanvasElement,
     private readonly joystickRadiusPixels: number,
     private readonly getSettings: () => InputSettings,
-    private readonly mapper = new TouchActionMapper(),
+    touchLookSmoothing: number,
+    private readonly mapper = new TouchActionMapper(touchLookSmoothing),
   ) {
     this.moveZone.addEventListener("pointerdown", this.onMoveStart);
     this.canvas.addEventListener("pointerdown", this.onLookStart);

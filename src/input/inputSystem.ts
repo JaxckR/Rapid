@@ -6,6 +6,7 @@ import type {
   InputSource,
   PauseIntent,
 } from "./actions";
+import { applyAimAssist, type AimAssistContext, type AimAssistOptions } from "./aimAssist";
 import { CanvasInputGuard } from "./canvasInputGuard";
 import { DesktopInput } from "./desktopInput";
 import { requireElement } from "./dom";
@@ -16,6 +17,8 @@ export interface InputSystemOptions {
   readonly settings: InputSettings;
   readonly joystickRadiusPixels: number;
   readonly maximumLookDeltaPixels: number;
+  readonly touchLookSmoothing: number;
+  readonly aimAssist: AimAssistOptions;
 }
 
 export class InputSystem {
@@ -25,6 +28,7 @@ export class InputSystem {
   private readonly touch: TouchInput;
   private readonly sources: Readonly<Record<InputMode, InputSource>>;
   private readonly guard: CanvasInputGuard;
+  private readonly aimAssistOptions: AimAssistOptions;
   private readonly unsubscribeModeChange: () => void;
   private pausePending: PauseIntent = "none";
 
@@ -35,17 +39,37 @@ export class InputSystem {
       requireElement<HTMLElement>("touch-controls"),
     );
     this.desktop = new DesktopInput(canvas, options.maximumLookDeltaPixels);
-    this.touch = new TouchInput(canvas, options.joystickRadiusPixels, () => this.settingsValue);
+    this.touch = new TouchInput(
+      canvas,
+      options.joystickRadiusPixels,
+      () => this.settingsValue,
+      options.touchLookSmoothing,
+    );
     this.sources = { desktop: this.desktop, touch: this.touch };
     this.guard = new CanvasInputGuard(canvas);
+    this.aimAssistOptions = options.aimAssist;
     this.unsubscribeModeChange = this.modeManager.onChange(() => this.resetSources());
     this.applySettings();
     window.addEventListener("blur", this.onFocusLost);
     document.addEventListener("visibilitychange", this.onVisibilityChanged);
   }
 
-  public sample(): InputActionState {
-    const action = this.sources[this.modeManager.mode].sample(this.settingsValue);
+  public sample(aimContext?: Omit<AimAssistContext, "fire">): InputActionState {
+    let action = this.sources[this.modeManager.mode].sample(this.settingsValue);
+    if (
+      aimContext !== undefined &&
+      this.modeManager.mode === "touch" &&
+      this.settingsValue.aimAssist
+    ) {
+      action = {
+        ...action,
+        look: applyAimAssist(
+          action.look,
+          { ...aimContext, fire: action.fire },
+          this.aimAssistOptions,
+        ),
+      };
+    }
     if (this.pausePending === "none") return action;
     const pause = this.pausePending === "force" ? "force" : action.pause;
     this.pausePending = "none";
@@ -99,6 +123,7 @@ export class InputSystem {
       mouseSensitivity: clamp(settings.mouseSensitivity, 0.25, 3),
       touchSensitivity: clamp(settings.touchSensitivity, 0.25, 3),
       leftHanded: settings.leftHanded,
+      aimAssist: settings.aimAssist,
     };
   }
 

@@ -1,62 +1,69 @@
+import type { GameConfig } from "../core/config";
 import { clamp, type Vec3 } from "../core/math";
 import type { InputActionState } from "../input/actions";
+import { updateHorizontalVelocity } from "./playerMovement";
 
 export interface PlayerSnapshot {
   readonly position: Vec3;
+  readonly velocity: Vec3;
   readonly yaw: number;
   readonly pitch: number;
   readonly health: number;
   readonly maximumHealth: number;
 }
 
+export interface PlayerPhysicsState {
+  readonly position: Vec3;
+  readonly velocity: Vec3;
+  readonly grounded: boolean;
+}
+
 export class PlayerController {
   private position: Vec3 = { x: 0, y: 0, z: -11 };
+  private previousPosition: Vec3 = this.position;
+  private velocity: Vec3 = { x: 0, y: 0, z: 0 };
   private yaw = 0;
   private pitch = 0;
   private health: number;
+  private maximumSpeed: number;
 
   public constructor(
     private maximumHealth: number,
-    private movementSpeed: number,
-    private readonly lookSensitivity: number,
+    private readonly config: GameConfig["player"],
   ) {
     this.health = maximumHealth;
+    this.maximumSpeed = config.maximumSpeed;
   }
 
-  public update(
-    actions: InputActionState,
-    deltaSeconds: number,
-    isWalkable: (position: Vec3) => boolean = () => true,
-  ): void {
-    this.yaw += actions.look.x * this.lookSensitivity;
-    this.pitch = clamp(this.pitch + actions.look.y * this.lookSensitivity, -1.25, 1.25);
+  public update(actions: InputActionState, deltaSeconds: number): void {
+    this.yaw += actions.look.x * this.config.lookSensitivity;
+    this.pitch = clamp(
+      this.pitch + actions.look.y * this.config.lookSensitivity,
+      this.config.minimumPitch,
+      this.config.maximumPitch,
+    );
+    const horizontal = updateHorizontalVelocity(
+      { x: this.velocity.x, y: this.velocity.z },
+      actions.move,
+      this.yaw,
+      deltaSeconds,
+      {
+        maximumSpeed: this.maximumSpeed,
+        acceleration: this.config.acceleration,
+        deceleration: this.config.deceleration,
+      },
+    );
+    this.velocity = { ...this.velocity, x: horizontal.x, z: horizontal.y };
+  }
 
-    const forwardX = Math.sin(this.yaw);
-    const forwardZ = Math.cos(this.yaw);
-    const rightX = Math.cos(this.yaw);
-    const rightZ = -Math.sin(this.yaw);
-    const distance = this.movementSpeed * deltaSeconds;
-    const proposed = {
-      x: clamp(
-        this.position.x + (rightX * actions.move.x + forwardX * actions.move.y) * distance,
-        -7.8,
-        7.8,
-      ),
-      y: 0,
-      z: clamp(
-        this.position.z + (rightZ * actions.move.x + forwardZ * actions.move.y) * distance,
-        -12.5,
-        12.5,
-      ),
-    };
-    if (isWalkable(proposed)) {
-      this.position = proposed;
-      return;
-    }
-    const slideX = { ...this.position, x: proposed.x };
-    const slideZ = { ...this.position, z: proposed.z };
-    if (isWalkable(slideX)) this.position = slideX;
-    else if (isWalkable(slideZ)) this.position = slideZ;
+  public applyPhysicsState(state: PlayerPhysicsState): void {
+    this.previousPosition = this.position;
+    this.position = { ...state.position };
+    this.velocity = { ...state.velocity };
+  }
+
+  public desiredVelocity(): Vec3 {
+    return { ...this.velocity };
   }
 
   public applyDamage(amount: number): void {
@@ -69,12 +76,26 @@ export class PlayerController {
   }
 
   public setMovementSpeed(speed: number): void {
-    this.movementSpeed = Math.max(0, speed);
+    this.maximumSpeed = Math.max(0, speed);
   }
 
   public snapshot(): PlayerSnapshot {
+    return this.createSnapshot(this.position);
+  }
+
+  public renderSnapshot(interpolation: number): PlayerSnapshot {
+    const alpha = clamp(interpolation, 0, 1);
+    return this.createSnapshot({
+      x: this.previousPosition.x + (this.position.x - this.previousPosition.x) * alpha,
+      y: this.previousPosition.y + (this.position.y - this.previousPosition.y) * alpha,
+      z: this.previousPosition.z + (this.position.z - this.previousPosition.z) * alpha,
+    });
+  }
+
+  private createSnapshot(position: Vec3): PlayerSnapshot {
     return {
-      position: { ...this.position },
+      position: { ...position },
+      velocity: { ...this.velocity },
       yaw: this.yaw,
       pitch: this.pitch,
       health: this.health,

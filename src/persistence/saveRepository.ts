@@ -55,7 +55,8 @@ export class SaveRepository {
       Number.isFinite(record.mouseSensitivity) &&
       typeof record.touchSensitivity === "number" &&
       Number.isFinite(record.touchSensitivity) &&
-      typeof record.leftHanded === "boolean"
+      typeof record.leftHanded === "boolean" &&
+      (record.aimAssist === undefined || typeof record.aimAssist === "boolean")
     );
   }
 }

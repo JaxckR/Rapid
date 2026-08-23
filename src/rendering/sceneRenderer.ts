@@ -1,6 +1,7 @@
 import HavokPhysics from "@babylonjs/havok";
 import { UniversalCamera } from "@babylonjs/core/Cameras/universalCamera.js";
 import { Ray } from "@babylonjs/core/Culling/ray.js";
+import type { PhysicsViewer } from "@babylonjs/core/Debug/physicsViewer.js";
 import { Engine } from "@babylonjs/core/Engines/engine.js";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
@@ -23,8 +24,9 @@ import type { GameConfig } from "../core/config";
 import type { Vec3 } from "../core/math";
 import type { EnemyArchetype, EnemySnapshot } from "../enemies/enemySystem";
 import type { RoomLayout } from "../generation/roomGenerator";
-import type { PlayerSnapshot } from "../player/playerController";
+import type { PlayerPhysicsState, PlayerSnapshot } from "../player/playerController";
 import type { RoomState } from "../rooms/roomStateMachine";
+import { HavokPlayerBody } from "./havokPlayerBody";
 import { loadRecast } from "./recastLoader";
 
 const ENEMY_COLORS: Readonly<Record<EnemyArchetype, Color3>> = {
@@ -47,8 +49,13 @@ export class SceneRenderer {
   private readonly camera: UniversalCamera;
   private readonly enemyMeshes = new Map<string, Mesh>();
   private readonly aggregates: PhysicsAggregate[] = [];
+  private playerBody: HavokPlayerBody | undefined;
+  private physicsViewer: PhysicsViewer | undefined;
+  private playerColliderDebug: Mesh | undefined;
   private entranceDoor: Mesh | undefined;
   private exitDoor: Mesh | undefined;
+  private entranceDoorAggregate: PhysicsAggregate | undefined;
+  private exitDoorAggregate: PhysicsAggregate | undefined;
   private previousRoomState: RoomState | undefined;
   private disposed = false;
 
@@ -94,9 +101,24 @@ export class SceneRenderer {
       player.position.z,
     );
     this.camera.rotation.set(player.pitch, player.yaw, 0);
+    const colliderPosition = this.playerBody?.centerPosition();
+    if (colliderPosition !== undefined && this.playerColliderDebug !== undefined) {
+      this.playerColliderDebug.position.set(
+        colliderPosition.x,
+        colliderPosition.y,
+        colliderPosition.z,
+      );
+    }
     this.syncEnemies(enemies);
     this.syncDoors(roomState);
     this.scene.render();
+  }
+
+  public stepPlayer(velocity: Vec3, deltaSeconds: number): PlayerPhysicsState {
+    if (this.playerBody === undefined) {
+      return { position: { x: 0, y: 0, z: -11 }, velocity: { x: 0, y: 0, z: 0 }, grounded: true };
+    }
+    return this.playerBody.step(velocity, deltaSeconds);
   }
 
   public isOccluded(from: Vec3, to: Vec3): boolean {
@@ -118,7 +140,11 @@ export class SceneRenderer {
   public dispose(): void {
     if (this.disposed) return;
     this.disposed = true;
+    this.playerBody?.dispose();
+    this.entranceDoorAggregate?.dispose();
+    this.exitDoorAggregate?.dispose();
     for (const aggregate of this.aggregates) aggregate.dispose();
+    this.physicsViewer?.dispose();
     this.enemyMeshes.clear();
     this.scene.dispose();
     this.engine.dispose();
@@ -126,12 +152,28 @@ export class SceneRenderer {
 
   private async initialize(layout: RoomLayout): Promise<void> {
     const havok = await HavokPhysics();
-    this.scene.enablePhysics(new Vector3(0, -9.81, 0), new HavokPlugin(true, havok));
+    this.scene.enablePhysics(
+      new Vector3(0, -this.config.player.gravity, 0),
+      new HavokPlugin(true, havok),
+    );
+    const physicsEngine = this.scene.getPhysicsEngine();
+    physicsEngine?.setTimeStep(this.config.simulation.fixedStepSeconds);
+    physicsEngine?.setSubTimeStep(this.config.simulation.fixedStepSeconds);
+    if (this.physicsDebugEnabled()) {
+      const { PhysicsViewer } = await import("@babylonjs/core/Debug/physicsViewer.js");
+      this.physicsViewer = new PhysicsViewer(this.scene);
+    }
     new HemisphericLight("ambient-light", new Vector3(0, 1, 0), this.scene).intensity = 0.62;
     const keyLight = new DirectionalLight("key-light", new Vector3(-0.3, -1, 0.5), this.scene);
     keyLight.diffuse = Color3.FromHexString("#f3b36e");
     keyLight.intensity = 1.1;
     const navigationMeshes = await this.createEnvironment(layout);
+    this.playerBody = new HavokPlayerBody(this.scene, this.config.player, {
+      x: 0,
+      y: 0,
+      z: -11,
+    });
+    if (this.physicsViewer !== undefined) this.createPlayerColliderDebug();
     await this.initializeNavigation(navigationMeshes);
   }
 
@@ -161,11 +203,40 @@ export class SceneRenderer {
       wallMaterial.diffuseTexture = new Texture(wallAsset.url, this.scene);
     }
     const sideWallWidth = 0.5;
+    const doorwayWidth = 3.6;
+    const endWallSegmentWidth = (layout.width - doorwayWidth) / 2;
+    const endWallCenterX = doorwayWidth / 2 + endWallSegmentWidth / 2;
     const wallDefinitions = [
       { name: "wall-left", x: -layout.width / 2, z: 0, width: sideWallWidth, depth: layout.length },
       { name: "wall-right", x: layout.width / 2, z: 0, width: sideWallWidth, depth: layout.length },
-      { name: "wall-entry", x: -5.5, z: -layout.length / 2, width: layout.width - 7, depth: 0.5 },
-      { name: "wall-exit", x: 5.5, z: layout.length / 2, width: layout.width - 7, depth: 0.5 },
+      {
+        name: "wall-entry-left",
+        x: -endWallCenterX,
+        z: -layout.length / 2,
+        width: endWallSegmentWidth,
+        depth: 0.5,
+      },
+      {
+        name: "wall-entry-right",
+        x: endWallCenterX,
+        z: -layout.length / 2,
+        width: endWallSegmentWidth,
+        depth: 0.5,
+      },
+      {
+        name: "wall-exit-left",
+        x: -endWallCenterX,
+        z: layout.length / 2,
+        width: endWallSegmentWidth,
+        depth: 0.5,
+      },
+      {
+        name: "wall-exit-right",
+        x: endWallCenterX,
+        z: layout.length / 2,
+        width: endWallSegmentWidth,
+        depth: 0.5,
+      },
     ];
     for (const definition of wallDefinitions) {
       const wall = MeshBuilder.CreateBox(
@@ -211,7 +282,8 @@ export class SceneRenderer {
 
     this.entranceDoor = this.createDoor("entrance-door", -layout.length / 2);
     this.exitDoor = this.createDoor("exit-door", layout.length / 2);
-    this.entranceDoor.setEnabled(false);
+    this.setDoorCollision("entrance", false);
+    this.setDoorCollision("exit", true);
     return navigationMeshes;
   }
 
@@ -322,13 +394,68 @@ export class SceneRenderer {
   private syncDoors(roomState: RoomState): void {
     if (roomState === this.previousRoomState) return;
     this.previousRoomState = roomState;
-    if (roomState === "Locked" || roomState === "Combat") this.entranceDoor?.setEnabled(true);
-    if (roomState === "Opened") this.exitDoor?.setEnabled(false);
+    this.setDoorCollision("entrance", roomState === "Locked" || roomState === "Combat");
+    this.setDoorCollision("exit", roomState !== "Opened");
   }
 
-  private addStaticPhysics(mesh: AbstractMesh, shape: PhysicsShapeType): void {
-    this.aggregates.push(
-      new PhysicsAggregate(mesh, shape, { mass: 0, restitution: 0 }, this.scene),
+  private addStaticPhysics(mesh: AbstractMesh, shape: PhysicsShapeType): PhysicsAggregate {
+    const aggregate = new PhysicsAggregate(
+      mesh,
+      shape,
+      { mass: 0, friction: 0, restitution: 0 },
+      this.scene,
+    );
+    this.aggregates.push(aggregate);
+    this.physicsViewer?.showBody(aggregate.body);
+    return aggregate;
+  }
+
+  private setDoorCollision(door: "entrance" | "exit", enabled: boolean): void {
+    const mesh = door === "entrance" ? this.entranceDoor : this.exitDoor;
+    if (mesh === undefined) return;
+    let aggregate = door === "entrance" ? this.entranceDoorAggregate : this.exitDoorAggregate;
+    mesh.setEnabled(enabled);
+    if (enabled && aggregate === undefined) {
+      aggregate = new PhysicsAggregate(
+        mesh,
+        PhysicsShapeType.BOX,
+        { mass: 0, friction: 0, restitution: 0 },
+        this.scene,
+      );
+      this.physicsViewer?.showBody(aggregate.body);
+    } else if (!enabled && aggregate !== undefined) {
+      this.physicsViewer?.hideBody(aggregate.body);
+      aggregate.dispose();
+      aggregate = undefined;
+    }
+    if (door === "entrance") this.entranceDoorAggregate = aggregate;
+    else this.exitDoorAggregate = aggregate;
+  }
+
+  private createPlayerColliderDebug(): void {
+    const mesh = MeshBuilder.CreateCapsule(
+      "player-collider-debug",
+      {
+        height: this.config.player.colliderHeight,
+        radius: this.config.player.colliderRadius,
+        tessellation: 12,
+      },
+      this.scene,
+    );
+    const material = new StandardMaterial("player-collider-debug-material", this.scene);
+    material.diffuseColor = Color3.FromHexString("#55e6ff");
+    material.emissiveColor = Color3.FromHexString("#134954");
+    material.alpha = 0.45;
+    material.wireframe = true;
+    mesh.material = material;
+    mesh.isPickable = false;
+    this.playerColliderDebug = mesh;
+  }
+
+  private physicsDebugEnabled(): boolean {
+    return (
+      this.config.debug.showPhysicsColliders ||
+      new URLSearchParams(window.location.search).get("debugPhysics") === "1"
     );
   }
 

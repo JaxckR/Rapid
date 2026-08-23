@@ -17,6 +17,9 @@ export class TouchActionMapper {
   private readonly firePointers = new Set<number>();
   private interactRequested = false;
   private pauseRequested: PauseIntent = "none";
+  private smoothedLook: Vec2 = { x: 0, y: 0 };
+
+  public constructor(private readonly lookSmoothing = 1) {}
 
   public beginMove(pointerId: number, position: PointerPosition): boolean {
     if (this.movePointer !== undefined) return false;
@@ -73,11 +76,19 @@ export class TouchActionMapper {
   }
 
   public sample(settings: InputSettings): InputActionState {
+    const smoothing = clamp(this.lookSmoothing, 0, 1);
+    const hasLookDelta = this.lookDelta.x !== 0 || this.lookDelta.y !== 0;
+    this.smoothedLook = hasLookDelta
+      ? {
+          x: this.smoothedLook.x + (this.lookDelta.x - this.smoothedLook.x) * smoothing,
+          y: this.smoothedLook.y + (this.lookDelta.y - this.smoothedLook.y) * smoothing,
+        }
+      : { x: 0, y: 0 };
     const action: InputActionState = {
       move: this.move,
       look: {
-        x: this.lookDelta.x * settings.touchSensitivity,
-        y: this.lookDelta.y * settings.touchSensitivity,
+        x: this.smoothedLook.x * settings.touchSensitivity,
+        y: this.smoothedLook.y * settings.touchSensitivity,
       },
       fire: this.firePointers.size > 0,
       interact: this.interactRequested,
@@ -99,6 +110,7 @@ export class TouchActionMapper {
     this.move = { x: 0, y: 0 };
     this.moveOffset = { x: 0, y: 0 };
     this.lookDelta = { x: 0, y: 0 };
+    this.smoothedLook = { x: 0, y: 0 };
     this.firePointers.clear();
     this.interactRequested = false;
     this.pauseRequested = "none";

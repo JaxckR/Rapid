@@ -26,6 +26,7 @@ export interface InputSettings {
   readonly mouseSensitivity: number;
   readonly touchSensitivity: number;
   readonly leftHanded: boolean;
+  readonly aimAssist: boolean;
 }
 
 export const EMPTY_INPUT_ACTION_STATE: InputActionState = Object.freeze({

@@ -6,6 +6,7 @@ const SETTINGS: InputSettings = {
   mouseSensitivity: 1,
   touchSensitivity: 2,
   leftHanded: false,
+  aimAssist: false,
 };
 
 describe("Touch input actions", () => {
@@ -41,5 +42,15 @@ describe("Touch input actions", () => {
     expect(isInTouchLookRegion(250, 0, 1000, false)).toBe(false);
     expect(isInTouchLookRegion(250, 0, 1000, true)).toBe(true);
     expect(isInTouchLookRegion(750, 0, 1000, true)).toBe(false);
+  });
+
+  it("smooths consecutive look samples without continuing after touch stops", () => {
+    const mapper = new TouchActionMapper(0.5);
+    mapper.beginLook(1, { x: 400, y: 100 });
+    mapper.updatePointer(1, { x: 430, y: 100 }, 48);
+    expect(mapper.sample(SETTINGS).look.x).toBe(30);
+    mapper.updatePointer(1, { x: 460, y: 100 }, 48);
+    expect(mapper.sample(SETTINGS).look.x).toBe(45);
+    expect(mapper.sample(SETTINGS).look.x).toBe(0);
   });
 });

@@ -22,4 +22,11 @@ describe("FixedStepGameLoop", () => {
     expect(loop.advance(2)).toBe(3);
     expect(update).toHaveBeenCalledTimes(3);
   });
+
+  it.each([30, 60, 120])("runs 60 fixed simulation steps per second at %i FPS", (fps) => {
+    const update = vi.fn();
+    const loop = new FixedStepGameLoop(1 / 60, 0.1, 6, { update, render: vi.fn() });
+    for (let frame = 0; frame < fps; frame += 1) loop.advance(1 / fps);
+    expect(update).toHaveBeenCalledTimes(60);
+  });
 });
