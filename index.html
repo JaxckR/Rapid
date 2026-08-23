@@ -28,6 +28,23 @@
       <section id="pause-panel" hidden>
         <h1>Paused</h1>
         <p>Press Escape or tap pause to continue.</p>
+        <div id="input-settings">
+          <label for="mouse-sensitivity">
+            Mouse sensitivity
+            <output id="mouse-sensitivity-value" for="mouse-sensitivity">1.00</output>
+          </label>
+          <input id="mouse-sensitivity" type="range" min="0.25" max="3" step="0.05" />
+          <label for="touch-sensitivity">
+            Touch sensitivity
+            <output id="touch-sensitivity-value" for="touch-sensitivity">1.00</output>
+          </label>
+          <input id="touch-sensitivity" type="range" min="0.25" max="3" step="0.05" />
+          <label class="checkbox-setting" for="left-handed-controls">
+            <input id="left-handed-controls" type="checkbox" />
+            Left-handed touch layout
+          </label>
+        </div>
+        <button id="resume-button" type="button">Resume</button>
       </section>
     </main>
     <script type="module" src="/src/main.ts"></script>

@@ -1,40 +1,38 @@
-import { clamp, normalize2, type Vec2 } from "../core/math";
-import { EMPTY_ACTIONS, type InputActions, type InputSource } from "./actions";
+import { clamp } from "../core/math";
+import type { InputActionState, InputSettings, InputSource } from "./actions";
+import { DesktopActionMapper } from "./desktopActionMapper";
 
 export class DesktopInput implements InputSource {
-  private readonly pressedKeys = new Set<string>();
-  private lookDelta: Vec2 = { x: 0, y: 0 };
-  private firing = false;
-  private interactRequested = false;
-  private pauseRequested = false;
+  public readonly mode = "desktop" as const;
+  private pointerWasLocked = false;
+  private ignoreNextPointerLockLoss = false;
 
-  public constructor(private readonly canvas: HTMLCanvasElement) {
+  public constructor(
+    private readonly canvas: HTMLCanvasElement,
+    private readonly maximumLookDeltaPixels: number,
+    private readonly mapper = new DesktopActionMapper(),
+  ) {
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
     window.addEventListener("mousemove", this.onMouseMove);
     window.addEventListener("mousedown", this.onMouseDown);
     window.addEventListener("mouseup", this.onMouseUp);
-    this.canvas.addEventListener("click", this.onCanvasClick);
-    this.canvas.addEventListener("contextmenu", this.preventContextMenu);
+    document.addEventListener("pointerlockchange", this.onPointerLockChange);
+    this.canvas.addEventListener("pointerdown", this.onCanvasPointerDown);
   }
 
-  public sample(): InputActions {
-    if (!matchMedia("(hover: hover) and (pointer: fine)").matches) return EMPTY_ACTIONS;
-    const rawMove = {
-      x: Number(this.pressedKeys.has("KeyD")) - Number(this.pressedKeys.has("KeyA")),
-      y: Number(this.pressedKeys.has("KeyW")) - Number(this.pressedKeys.has("KeyS")),
-    };
-    const actions: InputActions = {
-      move: normalize2(rawMove),
-      look: this.lookDelta,
-      fire: this.firing,
-      interact: this.interactRequested,
-      pause: this.pauseRequested,
-    };
-    this.lookDelta = { x: 0, y: 0 };
-    this.interactRequested = false;
-    this.pauseRequested = false;
-    return actions;
+  public sample(settings: InputSettings): InputActionState {
+    return this.mapper.sample(settings);
+  }
+
+  public reset(): void {
+    this.mapper.reset();
+  }
+
+  public releasePointerLock(): void {
+    if (document.pointerLockElement !== this.canvas) return;
+    this.ignoreNextPointerLockLoss = true;
+    void document.exitPointerLock();
   }
 
   public dispose(): void {
@@ -43,39 +41,57 @@ export class DesktopInput implements InputSource {
     window.removeEventListener("mousemove", this.onMouseMove);
     window.removeEventListener("mousedown", this.onMouseDown);
     window.removeEventListener("mouseup", this.onMouseUp);
-    this.canvas.removeEventListener("click", this.onCanvasClick);
-    this.canvas.removeEventListener("contextmenu", this.preventContextMenu);
+    document.removeEventListener("pointerlockchange", this.onPointerLockChange);
+    this.canvas.removeEventListener("pointerdown", this.onCanvasPointerDown);
+    this.releasePointerLock();
   }
 
   private readonly onKeyDown = (event: KeyboardEvent): void => {
-    this.pressedKeys.add(event.code);
-    if (event.code === "KeyE" && !event.repeat) this.interactRequested = true;
-    if (event.code === "Escape" && !event.repeat) this.pauseRequested = true;
+    if (event.code === "Escape" && !event.repeat) {
+      this.mapper.reset();
+      this.releasePointerLock();
+    }
+    this.mapper.keyDown(event.code, event.repeat);
   };
 
-  private readonly onKeyUp = (event: KeyboardEvent): void => {
-    this.pressedKeys.delete(event.code);
-  };
+  private readonly onKeyUp = (event: KeyboardEvent): void => this.mapper.keyUp(event.code);
 
   private readonly onMouseMove = (event: MouseEvent): void => {
     if (document.pointerLockElement !== this.canvas) return;
-    this.lookDelta = {
-      x: this.lookDelta.x + clamp(event.movementX, -160, 160),
-      y: this.lookDelta.y + clamp(event.movementY, -160, 160),
-    };
+    this.mapper.addLookDelta(
+      clamp(event.movementX, -this.maximumLookDeltaPixels, this.maximumLookDeltaPixels),
+      clamp(event.movementY, -this.maximumLookDeltaPixels, this.maximumLookDeltaPixels),
+    );
   };
 
   private readonly onMouseDown = (event: MouseEvent): void => {
-    if (event.button === 0 && document.pointerLockElement === this.canvas) this.firing = true;
+    if (event.button === 0 && document.pointerLockElement === this.canvas) {
+      this.mapper.setFiring(true);
+    }
   };
 
   private readonly onMouseUp = (event: MouseEvent): void => {
-    if (event.button === 0) this.firing = false;
+    if (event.button === 0) this.mapper.setFiring(false);
   };
 
-  private readonly onCanvasClick = (): void => {
-    if (document.pointerLockElement === null) void this.canvas.requestPointerLock();
+  private readonly onCanvasPointerDown = (event: PointerEvent): void => {
+    if (
+      event.pointerType !== "mouse" ||
+      event.button !== 0 ||
+      document.pointerLockElement !== null
+    ) {
+      return;
+    }
+    void this.canvas.requestPointerLock().catch(() => undefined);
   };
 
-  private readonly preventContextMenu = (event: Event): void => event.preventDefault();
+  private readonly onPointerLockChange = (): void => {
+    const locked = document.pointerLockElement === this.canvas;
+    if (this.pointerWasLocked && !locked) {
+      this.mapper.reset();
+      if (!this.ignoreNextPointerLockLoss) this.mapper.requestPause("force");
+    }
+    this.ignoreNextPointerLockLoss = false;
+    this.pointerWasLocked = locked;
+  };
 }

@@ -10,6 +10,12 @@ export interface GameConfig {
     readonly movementSpeed: number;
     readonly lookSensitivity: number;
   };
+  readonly input: {
+    readonly defaultMouseSensitivity: number;
+    readonly defaultTouchSensitivity: number;
+    readonly joystickRadiusPixels: number;
+    readonly maximumLookDeltaPixels: number;
+  };
   readonly weapon: {
     readonly damage: number;
     readonly roundsPerSecond: number;
@@ -43,6 +49,12 @@ export const GAME_CONFIG: GameConfig = Object.freeze({
     eyeHeight: 1.65,
     movementSpeed: 5.4,
     lookSensitivity: 0.0022,
+  },
+  input: {
+    defaultMouseSensitivity: 1,
+    defaultTouchSensitivity: 1,
+    joystickRadiusPixels: 48,
+    maximumLookDeltaPixels: 160,
   },
   weapon: {
     damage: 34,
