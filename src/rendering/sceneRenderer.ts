@@ -6,6 +6,7 @@ import { Engine } from "@babylonjs/core/Engines/engine.js";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
 import { PointLight } from "@babylonjs/core/Lights/pointLight.js";
+import { ShadowGenerator } from "@babylonjs/core/Lights/Shadows/shadowGenerator.js";
 import { Material } from "@babylonjs/core/Materials/material.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
 import { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture.js";
@@ -83,6 +84,7 @@ export class SceneRenderer {
   private exitDoor: Mesh | undefined;
   private entranceDoorAggregate: PhysicsAggregate | undefined;
   private exitDoorAggregate: PhysicsAggregate | undefined;
+  private shadowGenerator: ShadowGenerator | undefined;
   private previousRoomState: RoomState | undefined;
   private quality: GraphicsQuality;
   private muzzleLightTime = 0;
@@ -228,6 +230,8 @@ export class SceneRenderer {
     const keyLight = new DirectionalLight("key-light", new Vector3(-0.3, -1, 0.5), this.scene);
     keyLight.diffuse = Color3.FromHexString("#f3b36e");
     keyLight.intensity = 1.1;
+    this.shadowGenerator = new ShadowGenerator(1024, keyLight);
+    this.shadowGenerator.usePercentageCloserFiltering = true;
     const navigationMeshes = await this.createEnvironment(layout);
     this.playerBody = new HavokPlayerBody(this.scene, this.config.player, {
       x: 0,
@@ -247,6 +251,7 @@ export class SceneRenderer {
     );
     floor.position.y = -0.1;
     floor.metadata = { blocksShots: false };
+    floor.receiveShadows = true;
     const floorMaterial = new StandardMaterial("floor-material", this.scene);
     floorMaterial.diffuseColor = Color3.FromHexString("#282d35");
     const floorAsset = await this.assets.resolve("texture.environment.floor");
@@ -312,6 +317,8 @@ export class SceneRenderer {
       wall.position.set(definition.x, this.config.room.wallHeight / 2, definition.z);
       wall.material = wallMaterial;
       wall.metadata = { blocksShots: true };
+      wall.receiveShadows = true;
+      this.shadowGenerator?.addShadowCaster(wall);
       navigationMeshes.push(wall);
       this.addStaticPhysics(wall, PhysicsShapeType.BOX);
     }
@@ -330,6 +337,8 @@ export class SceneRenderer {
           : Color3.FromHexString("#626873");
       mesh.material = material;
       mesh.metadata = { blocksShots: true };
+      mesh.receiveShadows = true;
+      this.shadowGenerator?.addShadowCaster(mesh);
       navigationMeshes.push(mesh);
       this.addStaticPhysics(mesh, PhysicsShapeType.BOX);
       const modelId: AssetId =
@@ -356,6 +365,8 @@ export class SceneRenderer {
     material.emissiveColor = Color3.FromHexString("#35110c");
     door.material = material;
     door.metadata = { blocksShots: true };
+    door.receiveShadows = true;
+    this.shadowGenerator?.addShadowCaster(door);
     void this.applyModel(door, "model.environment.door");
     return door;
   }
