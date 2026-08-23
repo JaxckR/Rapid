@@ -1,0 +1,181 @@
+:root {
+  color: #f5f2df;
+  background: #090b12;
+  font-family: ui-monospace, "Cascadia Mono", "SFMono-Regular", monospace;
+  font-synthesis: none;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+}
+
+* {
+  box-sizing: border-box;
+  touch-action: none;
+  user-select: none;
+}
+
+html,
+body,
+#game-shell {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+#game-shell {
+  position: relative;
+  background: #090b12;
+}
+
+#game-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  outline: none;
+}
+
+#hud {
+  position: absolute;
+  inset: calc(12px + var(--safe-top)) calc(14px + var(--safe-right)) auto
+    calc(14px + var(--safe-left));
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #f1d77a;
+  font-size: clamp(12px, 1.6vw, 18px);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-shadow: 0 2px 3px #000;
+  pointer-events: none;
+}
+
+#crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  translate: -50% -50%;
+  border: 2px solid rgb(245 242 223 / 80%);
+  border-radius: 50%;
+  box-shadow: 0 0 4px #000;
+  pointer-events: none;
+}
+
+#touch-controls {
+  display: none;
+}
+
+#move-zone,
+#move-stick,
+#fire-button,
+#interact-button,
+#pause-button {
+  position: absolute;
+  border: 2px solid rgb(245 242 223 / 42%);
+  color: #fff;
+  background: rgb(18 22 34 / 58%);
+  backdrop-filter: blur(3px);
+}
+
+#move-zone {
+  left: calc(28px + var(--safe-left));
+  bottom: calc(24px + var(--safe-bottom));
+  width: 116px;
+  height: 116px;
+  border-radius: 50%;
+}
+
+#move-stick {
+  top: 50%;
+  left: 50%;
+  width: 52px;
+  height: 52px;
+  translate: -50% -50%;
+  border-radius: 50%;
+  background: rgb(222 79 54 / 68%);
+}
+
+#fire-button {
+  right: calc(28px + var(--safe-right));
+  bottom: calc(24px + var(--safe-bottom));
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  font-weight: 800;
+}
+
+#interact-button {
+  right: calc(128px + var(--safe-right));
+  bottom: calc(32px + var(--safe-bottom));
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+}
+
+#pause-button {
+  top: calc(48px + var(--safe-top));
+  right: calc(16px + var(--safe-right));
+  width: 44px;
+  height: 36px;
+  border-radius: 9px;
+}
+
+#pause-panel,
+#orientation-notice {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 10px;
+  text-align: center;
+  background: rgb(6 7 11 / 88%);
+}
+
+#pause-panel[hidden],
+#orientation-notice {
+  display: none;
+}
+
+#pause-panel h1 {
+  margin: 0;
+  color: #e55b43;
+  text-transform: uppercase;
+}
+
+@media (hover: none), (pointer: coarse) {
+  #touch-controls {
+    display: block;
+  }
+}
+
+@media (orientation: portrait) and (max-width: 900px) {
+  #orientation-notice {
+    display: grid;
+    z-index: 10;
+  }
+}
+
+@media (max-height: 440px) {
+  #move-zone {
+    width: 92px;
+    height: 92px;
+  }
+
+  #fire-button {
+    width: 72px;
+    height: 72px;
+  }
+}
+
+body.left-handed #move-zone {
+  right: calc(28px + var(--safe-right));
+  left: auto;
+}
+
+body.left-handed #fire-button {
+  right: auto;
+  left: calc(28px + var(--safe-left));
+}
