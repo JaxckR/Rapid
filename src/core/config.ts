@@ -7,8 +7,20 @@ export interface GameConfig {
   readonly player: {
     readonly maximumHealth: number;
     readonly eyeHeight: number;
-    readonly movementSpeed: number;
+    readonly maximumSpeed: number;
+    readonly acceleration: number;
+    readonly deceleration: number;
+    readonly colliderRadius: number;
+    readonly colliderHeight: number;
+    readonly stepHeight: number;
+    readonly maximumSlopeDegrees: number;
+    readonly gravity: number;
     readonly lookSensitivity: number;
+    readonly minimumPitch: number;
+    readonly maximumPitch: number;
+    readonly touchLookSmoothing: number;
+    readonly aimAssistMaximumAngle: number;
+    readonly aimAssistTurnRate: number;
   };
   readonly input: {
     readonly defaultMouseSensitivity: number;
@@ -36,6 +48,10 @@ export interface GameConfig {
     readonly lowPowerHardwareScaling: number;
     readonly enemySpriteSize: number;
   };
+  readonly debug: {
+    readonly showPhysicsColliders: boolean;
+    readonly usePhysicsTestRoom: boolean;
+  };
 }
 
 export const GAME_CONFIG: GameConfig = Object.freeze({
@@ -47,8 +63,20 @@ export const GAME_CONFIG: GameConfig = Object.freeze({
   player: {
     maximumHealth: 100,
     eyeHeight: 1.65,
-    movementSpeed: 5.4,
+    maximumSpeed: 5.4,
+    acceleration: 22,
+    deceleration: 28,
+    colliderRadius: 0.42,
+    colliderHeight: 1.8,
+    stepHeight: 0.28,
+    maximumSlopeDegrees: 46,
+    gravity: 18,
     lookSensitivity: 0.0088,
+    minimumPitch: -1.25,
+    maximumPitch: 1.25,
+    touchLookSmoothing: 0.72,
+    aimAssistMaximumAngle: 0.105,
+    aimAssistTurnRate: 0.7,
   },
   input: {
     defaultMouseSensitivity: 1,
@@ -75,5 +103,9 @@ export const GAME_CONFIG: GameConfig = Object.freeze({
   rendering: {
     lowPowerHardwareScaling: 1.5,
     enemySpriteSize: 1.8,
+  },
+  debug: {
+    showPhysicsColliders: false,
+    usePhysicsTestRoom: false,
   },
 });

@@ -1,6 +1,7 @@
 import { AssetResolver } from "../assets/assetResolver";
 import { WeaponSystem } from "../combat/weaponSystem";
 import { EnemySystem } from "../enemies/enemySystem";
+import { createPhysicsTestRoom } from "../generation/physicsTestRoom";
 import { RoomGenerator, type RoomLayout } from "../generation/roomGenerator";
 import type { InputSettings } from "../input/actions";
 import { InputSystem } from "../input/inputSystem";
@@ -15,7 +16,6 @@ import { GAME_CONFIG, type GameConfig } from "./config";
 import { EventBus } from "./eventBus";
 import type { GameEvents } from "./events";
 import { FixedStepGameLoop } from "./gameLoop";
-import type { Vec3 } from "./math";
 
 export class GameApp {
   private readonly events = new EventBus<GameEvents>();
@@ -42,15 +42,24 @@ export class GameApp {
     const save = this.saves.load();
     this.seed = save?.seed ?? "rapid-foundation-001";
     this.progression = new ProgressionSystem(config.room.ordinaryRoomsPerLevel, save?.progression);
-    const inputSettings: InputSettings = save?.inputSettings ?? {
-      mouseSensitivity: config.input.defaultMouseSensitivity,
-      touchSensitivity: config.input.defaultTouchSensitivity,
-      leftHanded: save?.leftHandedControls ?? false,
+    const inputSettings: InputSettings = {
+      mouseSensitivity:
+        save?.inputSettings?.mouseSensitivity ?? config.input.defaultMouseSensitivity,
+      touchSensitivity:
+        save?.inputSettings?.touchSensitivity ?? config.input.defaultTouchSensitivity,
+      leftHanded: save?.inputSettings?.leftHanded ?? save?.leftHandedControls ?? false,
+      aimAssist: save?.inputSettings?.aimAssist ?? false,
     };
     this.input = new InputSystem(canvas, {
       settings: inputSettings,
       joystickRadiusPixels: config.input.joystickRadiusPixels,
       maximumLookDeltaPixels: config.input.maximumLookDeltaPixels,
+      touchLookSmoothing: config.player.touchLookSmoothing,
+      aimAssist: {
+        maximumAngle: config.player.aimAssistMaximumAngle,
+        turnRate: config.player.aimAssistTurnRate,
+        lookSensitivity: config.player.lookSensitivity,
+      },
     });
     this.inputSettingsPanel = new InputSettingsPanel(
       this.input.settings,
@@ -60,19 +69,17 @@ export class GameApp {
       },
       () => this.input.requestPauseToggle(),
     );
-    this.player = new PlayerController(
-      config.player.maximumHealth,
-      config.player.movementSpeed,
-      config.player.lookSensitivity,
-    );
+    this.player = new PlayerController(config.player.maximumHealth, config.player);
     this.weapon = new WeaponSystem(config.weapon);
-    this.layout = new RoomGenerator({
-      width: config.room.width,
-      length: config.room.length,
-      obstacleCount: config.generation.obstacleCount,
-      maximumAttempts: config.generation.maximumAttempts,
-      minimumObstacleSpacing: config.generation.minimumObstacleSpacing,
-    }).generate(this.seed);
+    this.layout = this.usePhysicsTestRoom()
+      ? createPhysicsTestRoom(config.room.width, config.room.length)
+      : new RoomGenerator({
+          width: config.room.width,
+          length: config.room.length,
+          obstacleCount: config.generation.obstacleCount,
+          maximumAttempts: config.generation.maximumAttempts,
+          minimumObstacleSpacing: config.generation.minimumObstacleSpacing,
+        }).generate(this.seed);
     this.room.transition("Waiting");
     this.loop = new FixedStepGameLoop(
       config.simulation.fixedStepSeconds,
@@ -80,7 +87,7 @@ export class GameApp {
       config.simulation.maximumSubSteps,
       {
         update: (deltaSeconds) => this.update(deltaSeconds),
-        render: () => this.render(),
+        render: (interpolation) => this.render(interpolation),
       },
     );
   }
@@ -108,12 +115,30 @@ export class GameApp {
   }
 
   private update(deltaSeconds: number): void {
-    const actions = this.input.sample();
+    const beforeInput = this.player.snapshot();
+    const aimTargets = this.enemies
+      .snapshots()
+      .filter(
+        (enemy) => !(this.renderer?.isOccluded(beforeInput.position, enemy.position) ?? false),
+      )
+      .map((enemy) => ({ ...enemy.position, y: enemy.position.y + 0.9 }));
+    const actions = this.input.sample({
+      deltaSeconds,
+      origin: {
+        ...beforeInput.position,
+        y: beforeInput.position.y + this.config.player.eyeHeight,
+      },
+      yaw: beforeInput.yaw,
+      pitch: beforeInput.pitch,
+      targets: aimTargets,
+    });
     if (actions.pause === "force") this.setPaused(true);
     else if (actions.pause === "toggle") this.setPaused(!this.paused);
     if (this.paused) return;
 
-    this.player.update(actions, deltaSeconds, (position) => this.isWalkable(position));
+    this.player.update(actions, deltaSeconds);
+    const physicsState = this.renderer?.stepPlayer(this.player.desiredVelocity(), deltaSeconds);
+    if (physicsState !== undefined) this.player.applyPhysicsState(physicsState);
     this.weapon.update(deltaSeconds);
     const player = this.player.snapshot();
 
@@ -173,8 +198,8 @@ export class GameApp {
     this.events.emit("game:pause-changed", { paused });
   }
 
-  private render(): void {
-    const player = this.player.snapshot();
+  private render(interpolation: number): void {
+    const player = this.player.renderSnapshot(interpolation);
     this.hud.update(
       player,
       this.room.state,
@@ -184,19 +209,10 @@ export class GameApp {
     this.renderer?.render(player, this.enemies.snapshots(), this.room.state);
   }
 
-  private isWalkable(position: Vec3): boolean {
-    const radius = 0.42;
-    if (
-      Math.abs(position.x) > this.layout.width / 2 - radius - 0.25 ||
-      position.z < -this.layout.length / 2 + radius ||
-      position.z > this.layout.length / 2 - radius
-    ) {
-      return false;
-    }
-    return this.layout.obstacles.every(
-      (obstacle) =>
-        Math.abs(position.x - obstacle.position.x) > obstacle.size.x / 2 + radius ||
-        Math.abs(position.z - obstacle.position.z) > obstacle.size.z / 2 + radius,
+  private usePhysicsTestRoom(): boolean {
+    return (
+      this.config.debug.usePhysicsTestRoom ||
+      new URLSearchParams(window.location.search).get("physicsTestRoom") === "1"
     );
   }
 

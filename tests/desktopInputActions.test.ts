@@ -6,6 +6,7 @@ const SETTINGS: InputSettings = {
   mouseSensitivity: 1.5,
   touchSensitivity: 1,
   leftHanded: false,
+  aimAssist: false,
 };
 
 describe("Desktop input actions", () => {

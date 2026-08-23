@@ -8,6 +8,7 @@ export {
   type InputSource,
   type PauseIntent,
 } from "./actions";
+export { applyAimAssist, type AimAssistContext, type AimAssistOptions } from "./aimAssist";
 export { DesktopActionMapper } from "./desktopActionMapper";
 export { DesktopInput } from "./desktopInput";
 export { InputSystem } from "./inputSystem";
