@@ -2,7 +2,6 @@ import { AssetResolver } from "../assets/assetResolver";
 import { WeaponSystem } from "../combat/weaponSystem";
 import { EnemySystem } from "../enemies/enemySystem";
 import { createPhysicsTestRoom } from "../generation/physicsTestRoom";
-import { RoomGenerator, type RoomLayout } from "../generation/roomGenerator";
 import type { InputSettings } from "../input/actions";
 import { InputSystem } from "../input/inputSystem";
 import { SaveRepository } from "../persistence/saveRepository";
@@ -11,11 +10,12 @@ import { ProgressionSystem } from "../progression/progressionSystem";
 import type { SceneRenderer } from "../rendering/sceneRenderer";
 import type { GraphicsQuality } from "../rendering/quality";
 import { recommendedQuality } from "../rendering/quality";
-import { RoomStateMachine } from "../rooms/roomStateMachine";
+import { RoomController, type RoomStateChange } from "../rooms/roomController";
 import { HudController } from "../ui/hudController";
 import { InputSettingsPanel } from "../ui/inputSettingsPanel";
 import { GraphicsSettingsPanel } from "../ui/graphicsSettingsPanel";
 import { WeaponHud } from "../ui/weaponHud";
+import { RoomDebugIndicator } from "../ui/roomDebugIndicator";
 import { GAME_CONFIG, type GameConfig } from "./config";
 import { EventBus } from "./eventBus";
 import type { GameEvents } from "./events";
@@ -27,7 +27,7 @@ export class GameApp {
   private readonly player: PlayerController;
   private readonly weapon: WeaponSystem;
   private readonly enemies = new EnemySystem();
-  private readonly room = new RoomStateMachine();
+  private readonly rooms: RoomController;
   private readonly progression: ProgressionSystem;
   private readonly saves = new SaveRepository(window.localStorage);
   private readonly assets = new AssetResolver();
@@ -35,11 +35,10 @@ export class GameApp {
   private readonly inputSettingsPanel: InputSettingsPanel;
   private readonly graphicsSettingsPanel: GraphicsSettingsPanel;
   private readonly weaponHud: WeaponHud;
+  private readonly roomDebug: RoomDebugIndicator;
   private readonly loop: FixedStepGameLoop;
-  private readonly layout: RoomLayout;
   private renderer: SceneRenderer | undefined;
   private paused = false;
-  private completedCurrentRoom = false;
   private readonly seed: string;
   private graphicsQuality: GraphicsQuality;
 
@@ -49,6 +48,27 @@ export class GameApp {
   ) {
     const save = this.saves.load();
     this.seed = save?.seed ?? "rapid-foundation-001";
+    this.rooms = new RoomController(
+      {
+        baseSeed: this.seed,
+        generator: {
+          width: config.room.width,
+          length: config.room.length,
+          obstacleCount: config.generation.obstacleCount,
+          maximumAttempts: config.generation.maximumAttempts,
+          minimumObstacleSpacing: config.generation.minimumObstacleSpacing,
+        },
+        triggerInset: config.room.triggerInset,
+        doorwayWidth: config.room.doorwayWidth,
+        doorDepth: config.room.doorDepth,
+        doorSafetyMargin: config.room.doorSafetyMargin,
+        retainedPreviousRooms: config.room.retainedPreviousRooms,
+        layoutFactory: this.usePhysicsTestRoom()
+          ? (seed) => ({ ...createPhysicsTestRoom(config.room.width, config.room.length), seed })
+          : undefined,
+      },
+      save?.roomSequence,
+    );
     const navigatorWithMemory = navigator as Navigator & { readonly deviceMemory?: number };
     this.graphicsQuality =
       save?.graphicsQuality ??
@@ -89,18 +109,16 @@ export class GameApp {
       this.persist();
     });
     this.weaponHud = new WeaponHud(this.assets);
-    this.player = new PlayerController(config.player.maximumHealth, config.player);
+    this.roomDebug = new RoomDebugIndicator(this.roomDebugEnabled());
+    this.player = new PlayerController(
+      config.player.maximumHealth,
+      config.player,
+      this.rooms.playerSpawnPosition,
+    );
     this.weapon = new WeaponSystem(config.weapon);
-    this.layout = this.usePhysicsTestRoom()
-      ? createPhysicsTestRoom(config.room.width, config.room.length)
-      : new RoomGenerator({
-          width: config.room.width,
-          length: config.room.length,
-          obstacleCount: config.generation.obstacleCount,
-          maximumAttempts: config.generation.maximumAttempts,
-          minimumObstacleSpacing: config.generation.minimumObstacleSpacing,
-        }).generate(this.seed);
-    this.room.transition("Waiting");
+    for (const room of this.rooms.loadedRooms) {
+      if (room.state === "Combat") this.spawnRoomWave(room.id);
+    }
     this.loop = new FixedStepGameLoop(
       config.simulation.fixedStepSeconds,
       config.simulation.maximumFrameSeconds,
@@ -118,8 +136,9 @@ export class GameApp {
       this.canvas,
       this.assets,
       this.config,
-      this.layout,
+      this.rooms.loadedRooms,
       this.graphicsQuality,
+      this.rooms.playerSpawnPosition,
     );
     await this.weaponHud.initialize();
     window.addEventListener("resize", this.onResize);
@@ -140,10 +159,14 @@ export class GameApp {
 
   private update(deltaSeconds: number): void {
     const beforeInput = this.player.snapshot();
+    const currentBeforeInput = this.rooms.currentRoom;
     const aimTargets = this.enemies
       .snapshots()
       .filter(
-        (enemy) => !(this.renderer?.isOccluded(beforeInput.position, enemy.position) ?? false),
+        (enemy) =>
+          enemy.roomId === currentBeforeInput.id &&
+          enemy.health > 0 &&
+          !(this.renderer?.isOccluded(beforeInput.position, enemy.position) ?? false),
       )
       .map((enemy) => ({ ...enemy.position, y: enemy.position.y + 0.9 }));
     const actions = this.input.sample({
@@ -165,19 +188,29 @@ export class GameApp {
     if (physicsState !== undefined) this.player.applyPhysicsState(physicsState);
     this.weapon.update(deltaSeconds);
     const player = this.player.snapshot();
+    const roomChanges = this.rooms.updatePlayer(
+      beforeInput.position,
+      player.position,
+      this.config.player.colliderRadius,
+    );
+    this.handleRoomChanges(roomChanges);
+    this.renderer?.updateRooms(this.rooms.loadedRooms);
+    for (const roomId of this.rooms.drainUnloadedRoomIds()) this.enemies.disposeRoom(roomId);
 
-    if (this.room.state === "Waiting" && player.position.z > -8) {
-      if (this.room.handlePlayerEntry()) {
-        this.events.emit("room:changed", { state: this.room.state });
-        if (this.room.beginCombat()) {
-          this.enemies.spawnDefaultWave(this.layout.enemySpawnPoints);
-          this.events.emit("room:changed", { state: this.room.state });
-        }
-      }
+    let currentRoom = this.rooms.currentRoom;
+    if (currentRoom.state === "Locked") {
+      this.spawnRoomWave(currentRoom.id);
+      const change = this.rooms.beginCombat(currentRoom.id);
+      if (change !== undefined) this.handleRoomChanges([change]);
+      currentRoom = this.rooms.currentRoom;
     }
 
-    if (this.room.state === "Combat") {
-      this.enemies.update(player.position, deltaSeconds);
+    this.enemies.update(
+      player.position,
+      deltaSeconds,
+      currentRoom.state === "Combat" ? currentRoom.id : null,
+    );
+    if (currentRoom.state === "Combat") {
       const shot = this.weapon.tryFire(actions.fire);
       if (shot !== undefined) {
         this.weaponHud.playFire();
@@ -189,25 +222,21 @@ export class GameApp {
           shot.range,
           shot.damage,
           (from, to) => this.renderer?.isOccluded(from, to) ?? false,
+          currentRoom.id,
         );
         if (result.hitEnemyId !== undefined) this.renderer?.playHitEffect(result.hitEnemyId);
         if (result.defeatedEnemyId !== undefined) {
           this.events.emit("enemy:defeated", { enemyId: result.defeatedEnemyId });
         }
       }
-      if (this.enemies.remainingRequiredEnemies === 0) this.completeRoom();
+      const remaining = this.enemies.remainingRequiredEnemiesForRoom(currentRoom.id);
+      const cleared = this.rooms.reportRequiredEnemies(currentRoom.id, remaining);
+      if (cleared !== undefined) {
+        this.handleRoomChanges([cleared]);
+        this.progression.completeRoom(`${this.seed}:room:${currentRoom.index}`, false);
+        this.persist();
+      }
     }
-    if (this.room.state === "Opened" && this.enemies.snapshots().length > 0) {
-      this.enemies.update(player.position, deltaSeconds);
-    }
-  }
-
-  private completeRoom(): void {
-    if (this.completedCurrentRoom || !this.room.clearAndOpen()) return;
-    this.completedCurrentRoom = true;
-    this.events.emit("room:changed", { state: this.room.state });
-    this.progression.completeRoom(`${this.seed}:room-0`, false);
-    this.persist();
   }
 
   private persist(): void {
@@ -219,6 +248,7 @@ export class GameApp {
       leftHandedControls: inputSettings.leftHanded,
       inputSettings,
       graphicsQuality: this.graphicsQuality,
+      roomSequence: this.rooms.snapshot(),
     });
   }
 
@@ -231,19 +261,42 @@ export class GameApp {
 
   private render(interpolation: number): void {
     const player = this.player.renderSnapshot(interpolation);
-    this.hud.update(
-      player,
-      this.room.state,
-      this.enemies.remainingRequiredEnemies,
-      this.progression.snapshot(),
-    );
-    this.renderer?.render(player, this.enemies.snapshots(), this.room.state);
+    const currentRoom = this.rooms.currentRoom;
+    const remainingEnemies = this.enemies.remainingRequiredEnemiesForRoom(currentRoom.id);
+    this.hud.update(player, currentRoom.state, remainingEnemies, this.progression.snapshot());
+    this.roomDebug.update(currentRoom, this.rooms.loadedRooms);
+    this.renderer?.render(player, this.enemies.snapshots(), this.rooms.loadedRooms);
+  }
+
+  private spawnRoomWave(roomId: string): void {
+    if (this.enemies.hasEnemiesForRoom(roomId)) return;
+    const room = this.rooms.loadedRooms.find((candidate) => candidate.id === roomId);
+    if (room === undefined) return;
+    this.enemies.spawnWave(room.id, room.layout.enemySpawnPoints, room.worldOffsetZ);
+  }
+
+  private handleRoomChanges(changes: readonly RoomStateChange[]): void {
+    for (const change of changes) {
+      this.events.emit("room:changed", {
+        roomId: change.roomId,
+        index: change.index,
+        state: change.state,
+      });
+      this.persist();
+    }
   }
 
   private usePhysicsTestRoom(): boolean {
     return (
       this.config.debug.usePhysicsTestRoom ||
       new URLSearchParams(window.location.search).get("physicsTestRoom") === "1"
+    );
+  }
+
+  private roomDebugEnabled(): boolean {
+    return (
+      this.config.debug.showRoomState ||
+      new URLSearchParams(window.location.search).get("debugRooms") === "1"
     );
   }
 

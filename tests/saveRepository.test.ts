@@ -26,6 +26,14 @@ describe("SaveRepository", () => {
         pendingUpgradeChoices: [],
       },
       leftHandedControls: true,
+      roomSequence: {
+        version: 1 as const,
+        currentRoomIndex: 2,
+        rooms: [
+          { index: 2, state: "Combat" as const },
+          { index: 3, state: "Waiting" as const },
+        ],
+      },
     };
 
     repository.save(save);

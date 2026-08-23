@@ -38,6 +38,11 @@ export interface GameConfig {
     readonly length: number;
     readonly wallHeight: number;
     readonly ordinaryRoomsPerLevel: number;
+    readonly triggerInset: number;
+    readonly doorwayWidth: number;
+    readonly doorDepth: number;
+    readonly doorSafetyMargin: number;
+    readonly retainedPreviousRooms: number;
   };
   readonly generation: {
     readonly maximumAttempts: number;
@@ -51,6 +56,7 @@ export interface GameConfig {
   readonly debug: {
     readonly showPhysicsColliders: boolean;
     readonly usePhysicsTestRoom: boolean;
+    readonly showRoomState: boolean;
   };
 }
 
@@ -94,6 +100,11 @@ export const GAME_CONFIG: GameConfig = Object.freeze({
     length: 28,
     wallHeight: 4,
     ordinaryRoomsPerLevel: 10,
+    triggerInset: 4,
+    doorwayWidth: 3.6,
+    doorDepth: 0.35,
+    doorSafetyMargin: 0.12,
+    retainedPreviousRooms: 1,
   },
   generation: {
     maximumAttempts: 80,
@@ -107,5 +118,6 @@ export const GAME_CONFIG: GameConfig = Object.freeze({
   debug: {
     showPhysicsColliders: false,
     usePhysicsTestRoom: false,
+    showRoomState: true,
   },
 });

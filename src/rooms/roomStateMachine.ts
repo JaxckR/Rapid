@@ -14,6 +14,23 @@ const TRANSITIONS: Readonly<Record<RoomState, readonly RoomState[]>> = {
 export class RoomStateMachine {
   private currentState: RoomState = "Generated";
 
+  public static restore(state: RoomState): RoomStateMachine {
+    const machine = new RoomStateMachine();
+    const orderedStates: readonly RoomState[] = [
+      "Generated",
+      "Waiting",
+      "PlayerEntered",
+      "Locked",
+      "Combat",
+      "Cleared",
+      "Opened",
+    ];
+    for (const next of orderedStates.slice(1, orderedStates.indexOf(state) + 1)) {
+      if (!machine.transition(next)) throw new Error(`Cannot restore room state ${state}.`);
+    }
+    return machine;
+  }
+
   public get state(): RoomState {
     return this.currentState;
   }

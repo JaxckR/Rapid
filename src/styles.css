@@ -66,6 +66,27 @@ body,
   pointer-events: none;
 }
 
+#room-debug {
+  position: absolute;
+  right: calc(12px + var(--safe-right));
+  bottom: calc(10px + var(--safe-bottom));
+  max-width: min(72vw, 760px);
+  padding: 6px 9px;
+  border: 1px solid rgb(109 229 255 / 35%);
+  border-radius: 5px;
+  color: #91e7ff;
+  background: rgb(5 12 18 / 72%);
+  font-size: clamp(9px, 1vw, 12px);
+  text-align: right;
+  text-shadow: 0 1px 2px #000;
+  pointer-events: none;
+  z-index: 5;
+}
+
+#room-debug[hidden] {
+  display: none;
+}
+
 #weapon-layer {
   position: absolute;
   inset: auto 0 0;
