@@ -66,6 +66,113 @@ body,
   pointer-events: none;
 }
 
+#weapon-layer {
+  position: absolute;
+  inset: auto 0 0;
+  height: min(42vh, 390px);
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 3;
+}
+
+#weapon-sprite {
+  position: absolute;
+  bottom: calc(-5px + var(--safe-bottom));
+  left: 50%;
+  width: clamp(180px, 34vw, 430px);
+  aspect-ratio: 1.55;
+  translate: -50% 0;
+  transform-origin: 50% 100%;
+  filter: drop-shadow(0 8px 8px rgb(0 0 0 / 60%));
+}
+
+#weapon-sprite:not(.has-asset) {
+  clip-path: polygon(
+    28% 100%,
+    22% 70%,
+    32% 35%,
+    44% 22%,
+    47% 0,
+    56% 0,
+    59% 22%,
+    72% 35%,
+    80% 70%,
+    74% 100%
+  );
+  background: linear-gradient(90deg, #202936 0 25%, #637080 44% 56%, #202936 75% 100%);
+  border-top: 5px solid #b8c5cf;
+}
+
+#weapon-sprite.has-asset {
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 600% 100%;
+}
+
+#weapon-layer.is-firing #weapon-sprite {
+  animation: weapon-recoil 130ms ease-out;
+}
+
+#weapon-layer.is-firing #weapon-sprite.has-asset {
+  animation:
+    weapon-sprite-fire 130ms steps(5, end),
+    weapon-recoil 130ms ease-out;
+}
+
+#muzzle-flash {
+  position: absolute;
+  bottom: min(31vh, 270px);
+  left: 50%;
+  width: clamp(48px, 8vw, 92px);
+  aspect-ratio: 1;
+  translate: -50% 30%;
+  scale: 0;
+  background: radial-gradient(circle, #fff 0 12%, #ffdf73 25%, #ff7139 52%, transparent 72%);
+  clip-path: polygon(
+    50% 0,
+    62% 31%,
+    100% 18%,
+    72% 50%,
+    100% 78%,
+    62% 68%,
+    50% 100%,
+    39% 68%,
+    0 80%,
+    29% 50%,
+    0 18%,
+    39% 31%
+  );
+  mix-blend-mode: screen;
+}
+
+#muzzle-flash.is-active {
+  animation: muzzle-flash 90ms steps(2, end);
+}
+
+@keyframes weapon-recoil {
+  40% {
+    translate: -50% 7%;
+    scale: 0.98;
+  }
+}
+
+@keyframes weapon-sprite-fire {
+  to {
+    background-position: 100% 100%;
+  }
+}
+
+@keyframes muzzle-flash {
+  0% {
+    scale: 1;
+    opacity: 1;
+  }
+  100% {
+    scale: 0.35;
+    opacity: 0;
+  }
+}
+
 #touch-controls {
   position: absolute;
   inset: 0;
@@ -185,6 +292,15 @@ body[data-input-mode="touch"] #touch-controls:not([hidden]) {
   accent-color: #e55b43;
 }
 
+#graphics-quality {
+  min-width: 112px;
+  border: 1px solid rgb(245 242 223 / 35%);
+  border-radius: 5px;
+  color: #f5f2df;
+  background: #141a26;
+  font: inherit;
+}
+
 .checkbox-setting {
   display: flex;
   align-items: center;
@@ -213,6 +329,18 @@ body[data-input-mode="touch"] #touch-controls:not([hidden]) {
 }
 
 @media (max-height: 440px) {
+  #weapon-layer {
+    height: 46vh;
+  }
+
+  #weapon-sprite {
+    width: clamp(150px, 30vw, 260px);
+  }
+
+  #muzzle-flash {
+    bottom: 30vh;
+  }
+
   #move-zone {
     width: 92px;
     height: 92px;

@@ -15,6 +15,10 @@
         <div id="ammo">ENERGY ∞</div>
       </section>
       <div id="crosshair" aria-hidden="true"></div>
+      <section id="weapon-layer" aria-hidden="true">
+        <div id="weapon-sprite"><span></span></div>
+        <div id="muzzle-flash"></div>
+      </section>
       <section id="touch-controls" aria-label="Touch controls">
         <div id="move-zone"><div id="move-stick"></div></div>
         <button id="pause-button" type="button" aria-label="Pause">Ⅱ</button>
@@ -46,6 +50,14 @@
           <label class="checkbox-setting" for="aim-assist">
             <input id="aim-assist" type="checkbox" />
             Weak mobile aim assist
+          </label>
+          <label for="graphics-quality">
+            Graphics quality
+            <select id="graphics-quality">
+              <option value="low">Low</option>
+              <option value="medium">Medium</option>
+              <option value="high">High</option>
+            </select>
           </label>
         </div>
         <button id="resume-button" type="button">Resume</button>

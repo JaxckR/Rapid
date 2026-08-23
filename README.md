@@ -4,9 +4,10 @@ Rapid is the technical foundation for a single-player browser FPS with a full 3D
 camera-facing enemy sprites. The project uses Babylon.js, Havok Physics, Recast Navigation,
 strict TypeScript, Vite, and Vitest without a UI framework.
 
-The current milestone provides one deterministic combat-room sandbox. It is intentionally a
-foundation rather than a complete game: procedural room sequencing, complete enemy attacks,
-upgrade selection, and production art/audio will be implemented incrementally.
+The current milestone provides one deterministic combat-room sandbox with a complete baseline
+2.5D presentation layer. It is intentionally a foundation rather than a complete game: procedural
+room sequencing, complete enemy attacks, upgrade selection, and production art/audio will be
+implemented incrementally.
 
 ## Requirements
 
@@ -88,11 +89,29 @@ state.
 ## Simulation and performance
 
 Simulation runs at a fixed 60 Hz. Long browser frames are clamped and have a maximum substep count
-to prevent a spiral of death. Rendering remains variable-rate. Low-core or low-memory devices use
-a higher Babylon hardware scaling level to reduce the internal render resolution.
+to prevent a spiral of death. Rendering remains variable-rate. Low-core or low-memory devices start
+with the low graphics profile. The pause panel can switch between low, medium, and high without a
+restart: effective device pixel ratio is capped at 1, 1.5, and 2 respectively. Low quality disables
+shadow processing and the dynamic muzzle light and uses a smaller impact-particle budget.
 
 Procedural layouts use a seeded PRNG, bounded placement attempts, reserved entrance and exit zones,
 overlap rejection, a grid path check, and a known-safe fallback.
+
+## 2.5D rendering
+
+Rooms, doors, and blocking obstacles are Babylon.js 3D meshes with Havok colliders. Enemies are
+Y-axis billboards, while animation state and facing direction come from render-independent enemy
+snapshots. The renderer supports `idle`, `move`, `attack`, `hurt`, and `death` animation bands and
+selects one of eight views from the camera/enemy angle.
+
+Enemy atlases use eight direction columns in this order: front, front-left, left, back-left, back,
+back-right, right, and front-right. The 26 animation rows are split into 4 idle, 6 move, 6 attack,
+2 hurt, and 8 death frames. Nearest atlas sampling, clamped UVs, alpha-test-and-blend transparency,
+and a depth pre-pass avoid sprite edge bleeding, incorrect alpha sorting, and z-fighting.
+
+The first-person weapon is a separate responsive HUD layer with a six-frame replacement sheet,
+procedural fallback, recoil, and muzzle flash. Hits emit pooled Babylon mesh particles; rendering
+effects consume combat results but never decide damage, attack timing, or enemy lifetime.
 
 Player motion uses Babylon's Havok-backed capsule character controller. Acceleration and
 deceleration are calculated in device-independent game logic, then applied through fixed-step
@@ -116,5 +135,6 @@ door colliders. Both flags can also be enabled through `GAME_CONFIG.debug`.
 ## Assets
 
 See [ASSETS.md](./ASSETS.md). Media files committed in this milestone are deliberately zero bytes.
-`AssetResolver` checks their size before Babylon receives them; code-generated primitives and
-materials remain active until valid replacement files are supplied at the same paths.
+`AssetResolver` checks their size before Babylon receives them; code-generated primitives,
+materials, enemy atlases, weapon art, and effects remain active until valid replacement files are
+supplied at the same paths.

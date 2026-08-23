@@ -1,5 +1,6 @@
 import type { ProgressionSnapshot } from "../progression/progressionSystem";
 import type { InputSettings } from "../input/actions";
+import type { GraphicsQuality } from "../rendering/quality";
 
 export interface GameSave {
   readonly version: 1;
@@ -7,6 +8,7 @@ export interface GameSave {
   readonly progression: ProgressionSnapshot;
   readonly leftHandedControls: boolean;
   readonly inputSettings?: InputSettings;
+  readonly graphicsQuality?: GraphicsQuality;
 }
 
 export interface StorageAdapter {
@@ -43,6 +45,10 @@ export class SaveRepository {
       typeof record.progression === "object" &&
       record.progression !== null &&
       typeof record.leftHandedControls === "boolean" &&
+      (record.graphicsQuality === undefined ||
+        record.graphicsQuality === "low" ||
+        record.graphicsQuality === "medium" ||
+        record.graphicsQuality === "high") &&
       (record.inputSettings === undefined || this.isInputSettings(record.inputSettings))
     );
   }

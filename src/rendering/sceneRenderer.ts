@@ -5,13 +5,17 @@ import type { PhysicsViewer } from "@babylonjs/core/Debug/physicsViewer.js";
 import { Engine } from "@babylonjs/core/Engines/engine.js";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
+import { PointLight } from "@babylonjs/core/Lights/pointLight.js";
+import { Material } from "@babylonjs/core/Materials/material.js";
 import { StandardMaterial } from "@babylonjs/core/Materials/standardMaterial.js";
+import { DynamicTexture } from "@babylonjs/core/Materials/Textures/dynamicTexture.js";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Color3, Color4 } from "@babylonjs/core/Maths/math.color.js";
 import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { MeshBuilder } from "@babylonjs/core/Meshes/meshBuilder.js";
+import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import { RecastJSPlugin } from "@babylonjs/core/Navigation/Plugins/recastJSPlugin.js";
 import { PhysicsShapeType } from "@babylonjs/core/Physics/v2/IPhysicsEnginePlugin.js";
 import { HavokPlugin } from "@babylonjs/core/Physics/v2/Plugins/havokPlugin.js";
@@ -28,6 +32,10 @@ import type { PlayerPhysicsState, PlayerSnapshot } from "../player/playerControl
 import type { RoomState } from "../rooms/roomStateMachine";
 import { HavokPlayerBody } from "./havokPlayerBody";
 import { loadRecast } from "./recastLoader";
+import { CombatEffects } from "./combatEffects";
+import type { GraphicsQuality } from "./quality";
+import { QUALITY_PROFILES, hardwareScalingFor } from "./quality";
+import { ENEMY_ATLAS, atlasFrameUvs, selectAtlasFrame, selectViewDirection } from "./spriteAtlas";
 
 const ENEMY_COLORS: Readonly<Record<EnemyArchetype, Color3>> = {
   flying: Color3.FromHexString("#d95ce5"),
@@ -36,19 +44,38 @@ const ENEMY_COLORS: Readonly<Record<EnemyArchetype, Color3>> = {
   shooter: Color3.FromHexString("#e65a4d"),
 };
 
-const ENEMY_ASSETS: Readonly<Partial<Record<EnemyArchetype, AssetId>>> = {
-  flying: "sprite.enemy.flying.idle",
-  toxic: "sprite.enemy.toxic.attack",
-  jumper: "sprite.enemy.jumper.jump",
-  shooter: "sprite.enemy.shooter.attack",
+const ENEMY_HEX_COLORS: Readonly<Record<EnemyArchetype, string>> = {
+  flying: "#d95ce5",
+  toxic: "#79d653",
+  jumper: "#f49a43",
+  shooter: "#e65a4d",
 };
+
+const ENEMY_ASSETS: Readonly<Record<EnemyArchetype, AssetId>> = {
+  flying: "sprite.enemy.flying.atlas",
+  toxic: "sprite.enemy.toxic.atlas",
+  jumper: "sprite.enemy.jumper.atlas",
+  shooter: "sprite.enemy.shooter.atlas",
+};
+
+interface EnemyVisual {
+  readonly mesh: Mesh;
+  readonly material: StandardMaterial;
+  readonly archetype: EnemyArchetype;
+  animationState: EnemySnapshot["animationState"];
+  animationClock: number;
+}
 
 export class SceneRenderer {
   private readonly engine: Engine;
   private readonly scene: Scene;
   private readonly camera: UniversalCamera;
-  private readonly enemyMeshes = new Map<string, Mesh>();
+  private readonly enemyVisuals = new Map<string, EnemyVisual>();
+  private readonly atlasTextures = new Map<EnemyArchetype, Texture>();
+  private readonly loadingAtlases = new Set<EnemyArchetype>();
   private readonly aggregates: PhysicsAggregate[] = [];
+  private readonly combatEffects: CombatEffects;
+  private readonly muzzleLight: PointLight;
   private playerBody: HavokPlayerBody | undefined;
   private physicsViewer: PhysicsViewer | undefined;
   private playerColliderDebug: Mesh | undefined;
@@ -57,17 +84,18 @@ export class SceneRenderer {
   private entranceDoorAggregate: PhysicsAggregate | undefined;
   private exitDoorAggregate: PhysicsAggregate | undefined;
   private previousRoomState: RoomState | undefined;
+  private quality: GraphicsQuality;
+  private muzzleLightTime = 0;
   private disposed = false;
 
   private constructor(
     canvas: HTMLCanvasElement,
     private readonly assets: AssetResolver,
     private readonly config: GameConfig,
+    quality: GraphicsQuality,
   ) {
-    this.engine = new Engine(canvas, true, { adaptToDeviceRatio: true, antialias: true });
-    if (this.shouldUseLowPowerMode()) {
-      this.engine.setHardwareScalingLevel(this.config.rendering.lowPowerHardwareScaling);
-    }
+    this.quality = quality;
+    this.engine = new Engine(canvas, true, { adaptToDeviceRatio: false, antialias: true });
     this.scene = new Scene(this.engine);
     this.scene.clearColor = new Color4(0.025, 0.03, 0.055, 1);
     this.scene.collisionsEnabled = true;
@@ -77,6 +105,12 @@ export class SceneRenderer {
     this.camera.fov = 1.05;
     this.camera.inputs.clear();
     this.scene.activeCamera = this.camera;
+    this.muzzleLight = new PointLight("muzzle-light", this.camera.position.clone(), this.scene);
+    this.muzzleLight.diffuse = Color3.FromHexString("#ffb34f");
+    this.muzzleLight.range = 8;
+    this.muzzleLight.intensity = 0;
+    this.combatEffects = new CombatEffects(this.scene, quality);
+    this.setQuality(quality);
   }
 
   public static async create(
@@ -84,8 +118,9 @@ export class SceneRenderer {
     assets: AssetResolver,
     config: GameConfig,
     layout: RoomLayout,
+    quality: GraphicsQuality,
   ): Promise<SceneRenderer> {
-    const renderer = new SceneRenderer(canvas, assets, config);
+    const renderer = new SceneRenderer(canvas, assets, config, quality);
     await renderer.initialize(layout);
     return renderer;
   }
@@ -95,6 +130,7 @@ export class SceneRenderer {
     enemies: readonly EnemySnapshot[],
     roomState: RoomState,
   ): void {
+    const visualDeltaSeconds = Math.min(this.engine.getDeltaTime() / 1000, 0.1);
     this.camera.position.set(
       player.position.x,
       player.position.y + this.config.player.eyeHeight,
@@ -109,9 +145,33 @@ export class SceneRenderer {
         colliderPosition.z,
       );
     }
-    this.syncEnemies(enemies);
+    this.syncEnemies(enemies, visualDeltaSeconds);
     this.syncDoors(roomState);
+    this.combatEffects.update(visualDeltaSeconds);
+    this.updateMuzzleLight(visualDeltaSeconds);
     this.scene.render();
+  }
+
+  public setQuality(quality: GraphicsQuality): void {
+    this.quality = quality;
+    const devicePixelRatio = window.devicePixelRatio || 1;
+    this.engine.setHardwareScalingLevel(hardwareScalingFor(devicePixelRatio, quality));
+    this.scene.shadowsEnabled = QUALITY_PROFILES[quality].shadows;
+    this.combatEffects.setQuality(quality);
+    if (!QUALITY_PROFILES[quality].dynamicMuzzleLight) this.muzzleLight.intensity = 0;
+    this.resize();
+  }
+
+  public playWeaponFire(): void {
+    if (!QUALITY_PROFILES[this.quality].dynamicMuzzleLight) return;
+    this.muzzleLightTime = 0.055;
+    this.muzzleLight.intensity = 2.2;
+  }
+
+  public playHitEffect(enemyId: string): void {
+    const visual = this.enemyVisuals.get(enemyId);
+    if (visual === undefined) return;
+    this.combatEffects.emitImpact(visual.mesh.position.clone());
   }
 
   public stepPlayer(velocity: Vec3, deltaSeconds: number): PlayerPhysicsState {
@@ -145,7 +205,8 @@ export class SceneRenderer {
     this.exitDoorAggregate?.dispose();
     for (const aggregate of this.aggregates) aggregate.dispose();
     this.physicsViewer?.dispose();
-    this.enemyMeshes.clear();
+    this.enemyVisuals.clear();
+    this.atlasTextures.clear();
     this.scene.dispose();
     this.engine.dispose();
   }
@@ -321,56 +382,141 @@ export class SceneRenderer {
     });
   }
 
-  private syncEnemies(enemies: readonly EnemySnapshot[]): void {
+  private syncEnemies(enemies: readonly EnemySnapshot[], deltaSeconds: number): void {
     const activeIds = new Set(enemies.map((enemy) => enemy.id));
-    for (const [id, mesh] of this.enemyMeshes) {
+    for (const [id, visual] of this.enemyVisuals) {
       if (activeIds.has(id)) continue;
-      mesh.dispose(false, true);
-      this.enemyMeshes.delete(id);
+      visual.material.dispose(false, false);
+      visual.mesh.dispose(false, false);
+      this.enemyVisuals.delete(id);
     }
     for (const enemy of enemies) {
-      let mesh = this.enemyMeshes.get(enemy.id);
-      if (mesh === undefined) {
-        mesh = this.createEnemyMesh(enemy);
-        this.enemyMeshes.set(enemy.id, mesh);
+      let visual = this.enemyVisuals.get(enemy.id);
+      if (visual === undefined) {
+        visual = this.createEnemyVisual(enemy);
+        this.enemyVisuals.set(enemy.id, visual);
       }
-      mesh.position.set(enemy.position.x, enemy.position.y + 0.9, enemy.position.z);
-      const material = mesh.material;
-      if (material instanceof StandardMaterial) {
-        material.emissiveColor =
-          enemy.attackPhase === "telegraph"
-            ? Color3.Yellow()
-            : ENEMY_COLORS[enemy.archetype].scale(0.25);
+      visual.mesh.position.set(enemy.position.x, enemy.position.y + 0.9, enemy.position.z);
+      if (visual.animationState !== enemy.animationState) {
+        visual.animationState = enemy.animationState;
+        visual.animationClock = 0;
+      } else {
+        visual.animationClock += deltaSeconds;
       }
+      visual.material.emissiveColor =
+        enemy.attackPhase === "telegraph"
+          ? Color3.Yellow()
+          : ENEMY_COLORS[enemy.archetype].scale(0.25);
+      const direction = selectViewDirection(
+        enemy.facingYaw,
+        enemy.position.x,
+        enemy.position.z,
+        this.camera.position.x,
+        this.camera.position.z,
+      );
+      const frame = selectAtlasFrame(
+        ENEMY_ATLAS,
+        enemy.animationState,
+        visual.animationClock,
+        direction.index,
+      );
+      visual.mesh.updateVerticesData(VertexBuffer.UVKind, atlasFrameUvs(frame));
     }
   }
 
-  private createEnemyMesh(enemy: EnemySnapshot): Mesh {
+  private createEnemyVisual(enemy: EnemySnapshot): EnemyVisual {
     const mesh = MeshBuilder.CreatePlane(
       enemy.id,
-      { size: this.config.rendering.enemySpriteSize },
+      { size: this.config.rendering.enemySpriteSize, updatable: true },
       this.scene,
     );
     mesh.billboardMode = Mesh.BILLBOARDMODE_Y;
     mesh.isPickable = false;
     const material = new StandardMaterial(`${enemy.id}-material`, this.scene);
-    material.diffuseColor = ENEMY_COLORS[enemy.archetype];
+    material.diffuseColor = Color3.White();
     material.emissiveColor = ENEMY_COLORS[enemy.archetype].scale(0.25);
     material.backFaceCulling = false;
+    material.disableLighting = false;
+    material.useAlphaFromDiffuseTexture = true;
+    material.alphaCutOff = 0.12;
+    material.transparencyMode = Material.MATERIAL_ALPHATESTANDBLEND;
+    material.needDepthPrePass = true;
+    material.forceDepthWrite = true;
     mesh.material = material;
-    const assetId = ENEMY_ASSETS[enemy.archetype];
-    if (assetId !== undefined) void this.applyEnemyTexture(material, assetId);
-    return mesh;
-  }
-
-  private async applyEnemyTexture(material: StandardMaterial, assetId: AssetId): Promise<void> {
-    const asset = await this.assets.resolve(assetId);
-    if (!asset.available || asset.url === undefined || this.disposed) return;
-    const texture = new Texture(asset.url, this.scene);
-    texture.hasAlpha = true;
+    const texture = this.enemyAtlasTexture(enemy.archetype);
     material.diffuseTexture = texture;
     material.opacityTexture = texture;
-    material.diffuseColor = Color3.White();
+    const visual: EnemyVisual = {
+      mesh,
+      material,
+      archetype: enemy.archetype,
+      animationState: enemy.animationState,
+      animationClock: 0,
+    };
+    void this.loadEnemyAtlas(enemy.archetype);
+    return visual;
+  }
+
+  private enemyAtlasTexture(archetype: EnemyArchetype): Texture {
+    const existing = this.atlasTextures.get(archetype);
+    if (existing !== undefined) return existing;
+    const texture = this.createPlaceholderAtlas(archetype);
+    this.atlasTextures.set(archetype, texture);
+    return texture;
+  }
+
+  private createPlaceholderAtlas(archetype: EnemyArchetype): DynamicTexture {
+    const cellSize = 32;
+    const texture = new DynamicTexture(
+      `${archetype}-procedural-atlas`,
+      { width: ENEMY_ATLAS.columns * cellSize, height: ENEMY_ATLAS.rows * cellSize },
+      this.scene,
+      false,
+      Texture.NEAREST_SAMPLINGMODE,
+    );
+    texture.hasAlpha = true;
+    texture.wrapU = Texture.CLAMP_ADDRESSMODE;
+    texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+    const context = texture.getContext();
+    context.clearRect(0, 0, texture.getSize().width, texture.getSize().height);
+    for (let row = 0; row < ENEMY_ATLAS.rows; row += 1) {
+      for (let column = 0; column < ENEMY_ATLAS.columns; column += 1) {
+        const centerX = column * cellSize + cellSize / 2;
+        const centerY = row * cellSize + cellSize / 2;
+        const pulse = (row % 3) * 0.8;
+        context.fillStyle = "rgba(0,0,0,0.42)";
+        context.fillRect(centerX - 10, centerY + 9, 20, 4);
+        context.fillStyle = ENEMY_HEX_COLORS[archetype];
+        context.fillRect(centerX - 9, centerY - 11 - pulse, 18, 23 + pulse);
+        const facingOffset = Math.sin((column / 8) * Math.PI * 2) * 5;
+        context.fillStyle = row >= 18 ? "#351b1b" : "#fff1a8";
+        context.fillRect(centerX - 5 + facingOffset, centerY - 5, 3, 3);
+        context.fillRect(centerX + 2 + facingOffset, centerY - 5, 3, 3);
+      }
+    }
+    texture.update(false);
+    return texture;
+  }
+
+  private async loadEnemyAtlas(archetype: EnemyArchetype): Promise<void> {
+    if (this.loadingAtlases.has(archetype)) return;
+    this.loadingAtlases.add(archetype);
+    const asset = await this.assets.resolve(ENEMY_ASSETS[archetype]);
+    if (!asset.available || asset.url === undefined || this.disposed) return;
+    const texture = new Texture(asset.url, this.scene, false, false, Texture.NEAREST_SAMPLINGMODE);
+    texture.hasAlpha = true;
+    texture.wrapU = Texture.CLAMP_ADDRESSMODE;
+    texture.wrapV = Texture.CLAMP_ADDRESSMODE;
+    texture.anisotropicFilteringLevel = 1;
+    const previous = this.atlasTextures.get(archetype);
+    this.atlasTextures.set(archetype, texture);
+    for (const visual of this.enemyVisuals.values()) {
+      if (visual.archetype !== archetype) continue;
+      visual.material.diffuseTexture = texture;
+      visual.material.opacityTexture = texture;
+      visual.material.diffuseColor = Color3.White();
+    }
+    previous?.dispose();
   }
 
   private async applyModel(fallback: Mesh, assetId: AssetId): Promise<void> {
@@ -459,8 +605,10 @@ export class SceneRenderer {
     );
   }
 
-  private shouldUseLowPowerMode(): boolean {
-    const navigatorWithMemory = navigator as Navigator & { readonly deviceMemory?: number };
-    return navigator.hardwareConcurrency <= 4 || (navigatorWithMemory.deviceMemory ?? 8) <= 4;
+  private updateMuzzleLight(deltaSeconds: number): void {
+    this.muzzleLight.position.copyFrom(this.camera.position);
+    if (this.muzzleLightTime <= 0) return;
+    this.muzzleLightTime = Math.max(0, this.muzzleLightTime - deltaSeconds);
+    this.muzzleLight.intensity = this.muzzleLightTime > 0 ? 2.2 : 0;
   }
 }

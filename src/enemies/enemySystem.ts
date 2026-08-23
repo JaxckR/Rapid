@@ -2,6 +2,7 @@ import { distanceSquared3, type Vec3 } from "../core/math";
 
 export type EnemyArchetype = "flying" | "toxic" | "jumper" | "shooter";
 export type EnemyAttackPhase = "idle" | "telegraph" | "attack" | "recover";
+export type EnemyAnimationState = "idle" | "move" | "attack" | "hurt" | "death";
 
 export interface EnemySnapshot {
   readonly id: string;
@@ -9,6 +10,8 @@ export interface EnemySnapshot {
   readonly position: Vec3;
   readonly health: number;
   readonly attackPhase: EnemyAttackPhase;
+  readonly animationState: EnemyAnimationState;
+  readonly facingYaw: number;
 }
 
 interface MutableEnemy {
@@ -18,6 +21,11 @@ interface MutableEnemy {
   health: number;
   attackClock: number;
   attackPhase: EnemyAttackPhase;
+  facingYaw: number;
+  moving: boolean;
+  hurtClock: number;
+  deathClock: number;
+  alive: boolean;
 }
 
 export interface ShotResult {
@@ -46,16 +54,34 @@ export class EnemySystem {
         health: 100,
         attackClock: index * 0.3,
         attackPhase: "idle",
+        facingYaw: 0,
+        moving: false,
+        hurtClock: 0,
+        deathClock: 0,
+        alive: true,
       });
     }
   }
 
   public update(playerPosition: Vec3, deltaSeconds: number): void {
-    for (const enemy of this.enemies) {
+    for (let index = this.enemies.length - 1; index >= 0; index -= 1) {
+      const enemy = this.enemies[index];
+      if (enemy === undefined) continue;
+      if (!enemy.alive) {
+        enemy.deathClock += deltaSeconds;
+        if (enemy.deathClock >= 0.8) this.enemies.splice(index, 1);
+        continue;
+      }
+      enemy.hurtClock = Math.max(0, enemy.hurtClock - deltaSeconds);
       const distance = Math.sqrt(distanceSquared3(enemy.position, playerPosition));
       const desiredDistance =
         enemy.archetype === "shooter" ? 8 : enemy.archetype === "flying" ? 7 : 3;
-      if (distance > desiredDistance && distance > Number.EPSILON) {
+      enemy.facingYaw = Math.atan2(
+        playerPosition.x - enemy.position.x,
+        playerPosition.z - enemy.position.z,
+      );
+      enemy.moving = distance > desiredDistance && distance > Number.EPSILON;
+      if (enemy.moving) {
         const speed = enemy.archetype === "jumper" ? 0.6 : 1.1;
         enemy.position = {
           x:
@@ -83,6 +109,7 @@ export class EnemySystem {
     let target: MutableEnemy | undefined;
     let targetDistance = range;
     for (const enemy of this.enemies) {
+      if (!enemy.alive) continue;
       const dx = enemy.position.x - origin.x;
       const dz = enemy.position.z - origin.z;
       const distance = Math.hypot(dx, dz);
@@ -95,19 +122,30 @@ export class EnemySystem {
       }
     }
     if (target === undefined) return {};
-    target.health -= damage;
+    target.health = Math.max(0, target.health - damage);
+    target.hurtClock = 0.18;
     const result: ShotResult = { hitEnemyId: target.id };
     if (target.health > 0) return result;
-    this.enemies.splice(this.enemies.indexOf(target), 1);
+    target.alive = false;
+    target.deathClock = 0;
+    target.moving = false;
     return { ...result, defeatedEnemyId: target.id };
   }
 
   public snapshots(): readonly EnemySnapshot[] {
-    return this.enemies.map((enemy) => ({ ...enemy, position: { ...enemy.position } }));
+    return this.enemies.map((enemy) => ({
+      id: enemy.id,
+      archetype: enemy.archetype,
+      position: { ...enemy.position },
+      health: enemy.health,
+      attackPhase: enemy.attackPhase,
+      facingYaw: enemy.facingYaw,
+      animationState: this.animationState(enemy),
+    }));
   }
 
   public get remainingRequiredEnemies(): number {
-    return this.enemies.length;
+    return this.enemies.filter((enemy) => enemy.alive).length;
   }
 
   public dispose(): void {
@@ -119,5 +157,12 @@ export class EnemySystem {
     if (clock < 2.7) return "telegraph";
     if (clock < 2.9) return "attack";
     return "recover";
+  }
+
+  private animationState(enemy: MutableEnemy): EnemyAnimationState {
+    if (!enemy.alive) return "death";
+    if (enemy.hurtClock > 0) return "hurt";
+    if (enemy.attackPhase === "telegraph" || enemy.attackPhase === "attack") return "attack";
+    return enemy.moving ? "move" : "idle";
   }
 }
