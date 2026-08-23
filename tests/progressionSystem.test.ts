@@ -2,6 +2,16 @@ import { describe, expect, it } from "vitest";
 import { ProgressionSystem } from "../src/progression/progressionSystem";
 
 describe("ProgressionSystem", () => {
+  it("rejects a level room before the ordinary-room requirement is met", () => {
+    const progression = new ProgressionSystem(10);
+
+    expect(progression.completeRoom("early-level-room", true)).toEqual({
+      accepted: false,
+      leveledUp: false,
+    });
+    expect(progression.snapshot().completedRoomIds).not.toContain("early-level-room");
+  });
+
   it("requires ten ordinary rooms before a level room grants a level", () => {
     const progression = new ProgressionSystem(10);
     for (let index = 0; index < 10; index += 1) {

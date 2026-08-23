@@ -10,7 +10,7 @@ upgrade selection, and production art/audio will be implemented incrementally.
 
 ## Requirements
 
-- Node.js 22.12 or newer
+- Node.js 22.13 or newer
 - npm 10 or newer
 - A current desktop or mobile browser with WebAssembly and WebGL 2 support
 

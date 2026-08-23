@@ -43,12 +43,14 @@ export class ProgressionSystem {
 
   public completeRoom(roomId: string, isLevelRoom: boolean): RoomCompletion {
     if (this.completedRoomIds.has(roomId)) return { accepted: false, leveledUp: false };
+    if (isLevelRoom && !this.nextRoomIsLevelRoom) {
+      return { accepted: false, leveledUp: false };
+    }
     this.completedRoomIds.add(roomId);
     if (!isLevelRoom) {
       this.ordinaryRoomsCleared += 1;
       return { accepted: true, leveledUp: false };
     }
-    if (!this.nextRoomIsLevelRoom) return { accepted: true, leveledUp: false };
     this.level += 1;
     this.ordinaryRoomsCleared = 0;
     this.pendingUpgradeChoices = this.createUpgradeChoices();

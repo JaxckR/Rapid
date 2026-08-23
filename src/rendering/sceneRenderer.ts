@@ -137,11 +137,12 @@ export class SceneRenderer {
 
   private async createEnvironment(layout: RoomLayout): Promise<Mesh[]> {
     const navigationMeshes: Mesh[] = [];
-    const floor = MeshBuilder.CreateGround(
+    const floor = MeshBuilder.CreateBox(
       "floor",
-      { width: layout.width, height: layout.length, subdivisions: 1 },
+      { width: layout.width, height: 0.2, depth: layout.length },
       this.scene,
     );
+    floor.position.y = -0.1;
     floor.metadata = { blocksShots: false };
     const floorMaterial = new StandardMaterial("floor-material", this.scene);
     floorMaterial.diffuseColor = Color3.FromHexString("#282d35");
