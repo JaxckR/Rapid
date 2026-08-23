@@ -48,7 +48,7 @@ export const GAME_CONFIG: GameConfig = Object.freeze({
     maximumHealth: 100,
     eyeHeight: 1.65,
     movementSpeed: 5.4,
-    lookSensitivity: 0.0022,
+    lookSensitivity: 0.0088,
   },
   input: {
     defaultMouseSensitivity: 1,
