@@ -1,7 +1,7 @@
 import HavokPhysics from "@babylonjs/havok";
 import { UniversalCamera } from "@babylonjs/core/Cameras/universalCamera.js";
 import { Ray } from "@babylonjs/core/Culling/ray.js";
-import { PhysicsViewer } from "@babylonjs/core/Debug/physicsViewer.js";
+import type { PhysicsViewer } from "@babylonjs/core/Debug/physicsViewer.js";
 import { Engine } from "@babylonjs/core/Engines/engine.js";
 import { DirectionalLight } from "@babylonjs/core/Lights/directionalLight.js";
 import { HemisphericLight } from "@babylonjs/core/Lights/hemisphericLight.js";
@@ -159,7 +159,10 @@ export class SceneRenderer {
     const physicsEngine = this.scene.getPhysicsEngine();
     physicsEngine?.setTimeStep(this.config.simulation.fixedStepSeconds);
     physicsEngine?.setSubTimeStep(this.config.simulation.fixedStepSeconds);
-    if (this.physicsDebugEnabled()) this.physicsViewer = new PhysicsViewer(this.scene);
+    if (this.physicsDebugEnabled()) {
+      const { PhysicsViewer } = await import("@babylonjs/core/Debug/physicsViewer.js");
+      this.physicsViewer = new PhysicsViewer(this.scene);
+    }
     new HemisphericLight("ambient-light", new Vector3(0, 1, 0), this.scene).intensity = 0.62;
     const keyLight = new DirectionalLight("key-light", new Vector3(-0.3, -1, 0.5), this.scene);
     keyLight.diffuse = Color3.FromHexString("#f3b36e");
