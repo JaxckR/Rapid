@@ -6,17 +6,21 @@ export type EnemyAnimationState = "idle" | "move" | "attack" | "hurt" | "death";
 
 export interface EnemySnapshot {
   readonly id: string;
+  readonly roomId: string;
   readonly archetype: EnemyArchetype;
   readonly position: Vec3;
   readonly health: number;
   readonly attackPhase: EnemyAttackPhase;
   readonly animationState: EnemyAnimationState;
   readonly facingYaw: number;
+  readonly required: boolean;
 }
 
 interface MutableEnemy {
   readonly id: string;
+  readonly roomId: string;
   readonly archetype: EnemyArchetype;
+  readonly required: boolean;
   position: Vec3;
   health: number;
   attackClock: number;
@@ -37,19 +41,25 @@ export class EnemySystem {
   private readonly enemies: MutableEnemy[] = [];
 
   public spawnDefaultWave(spawnPoints: readonly Vec3[]): void {
-    if (this.enemies.length > 0) return;
+    this.spawnWave("room-0", spawnPoints, 0);
+  }
+
+  public spawnWave(roomId: string, spawnPoints: readonly Vec3[], worldOffsetZ: number): void {
+    if (this.enemies.some((enemy) => enemy.roomId === roomId)) return;
     const archetypes: readonly EnemyArchetype[] = ["flying", "toxic", "jumper", "shooter"];
     for (const [index, archetype] of archetypes.entries()) {
       const spawnPoint = spawnPoints[index];
       if (spawnPoint === undefined)
         throw new Error("The default wave requires four safe spawn points.");
       this.enemies.push({
-        id: `${archetype}-${index}`,
+        id: `${roomId}:${archetype}-${index}`,
+        roomId,
         archetype,
+        required: true,
         position: {
           x: spawnPoint.x,
           y: archetype === "flying" ? 1.4 : 0,
-          z: spawnPoint.z,
+          z: spawnPoint.z + worldOffsetZ,
         },
         health: 100,
         attackClock: index * 0.3,
@@ -63,7 +73,32 @@ export class EnemySystem {
     }
   }
 
-  public update(playerPosition: Vec3, deltaSeconds: number): void {
+  public spawnEnemy(
+    roomId: string,
+    archetype: EnemyArchetype,
+    position: Vec3,
+    required: boolean,
+  ): string {
+    const id = `${roomId}:${archetype}-extra-${this.enemies.length}`;
+    this.enemies.push({
+      id,
+      roomId,
+      archetype,
+      required,
+      position: { ...position },
+      health: 100,
+      attackClock: 0,
+      attackPhase: "idle",
+      facingYaw: 0,
+      moving: false,
+      hurtClock: 0,
+      deathClock: 0,
+      alive: true,
+    });
+    return id;
+  }
+
+  public update(playerPosition: Vec3, deltaSeconds: number, activeRoomId?: string | null): void {
     for (let index = this.enemies.length - 1; index >= 0; index -= 1) {
       const enemy = this.enemies[index];
       if (enemy === undefined) continue;
@@ -72,6 +107,7 @@ export class EnemySystem {
         if (enemy.deathClock >= 0.8) this.enemies.splice(index, 1);
         continue;
       }
+      if (activeRoomId !== undefined && enemy.roomId !== activeRoomId) continue;
       enemy.hurtClock = Math.max(0, enemy.hurtClock - deltaSeconds);
       const distance = Math.sqrt(distanceSquared3(enemy.position, playerPosition));
       const desiredDistance =
@@ -105,11 +141,13 @@ export class EnemySystem {
     range: number,
     damage: number,
     isOccluded: (from: Vec3, to: Vec3) => boolean,
+    roomId?: string,
   ): ShotResult {
     let target: MutableEnemy | undefined;
     let targetDistance = range;
     for (const enemy of this.enemies) {
       if (!enemy.alive) continue;
+      if (roomId !== undefined && enemy.roomId !== roomId) continue;
       const dx = enemy.position.x - origin.x;
       const dz = enemy.position.z - origin.z;
       const distance = Math.hypot(dx, dz);
@@ -135,17 +173,34 @@ export class EnemySystem {
   public snapshots(): readonly EnemySnapshot[] {
     return this.enemies.map((enemy) => ({
       id: enemy.id,
+      roomId: enemy.roomId,
       archetype: enemy.archetype,
       position: { ...enemy.position },
       health: enemy.health,
       attackPhase: enemy.attackPhase,
       facingYaw: enemy.facingYaw,
+      required: enemy.required,
       animationState: this.animationState(enemy),
     }));
   }
 
   public get remainingRequiredEnemies(): number {
-    return this.enemies.filter((enemy) => enemy.alive).length;
+    return this.enemies.filter((enemy) => enemy.alive && enemy.required).length;
+  }
+
+  public remainingRequiredEnemiesForRoom(roomId: string): number {
+    return this.enemies.filter((enemy) => enemy.roomId === roomId && enemy.alive && enemy.required)
+      .length;
+  }
+
+  public hasEnemiesForRoom(roomId: string): boolean {
+    return this.enemies.some((enemy) => enemy.roomId === roomId);
+  }
+
+  public disposeRoom(roomId: string): void {
+    for (let index = this.enemies.length - 1; index >= 0; index -= 1) {
+      if (this.enemies[index]?.roomId === roomId) this.enemies.splice(index, 1);
+    }
   }
 
   public dispose(): void {

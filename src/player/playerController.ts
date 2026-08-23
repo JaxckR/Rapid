@@ -19,8 +19,8 @@ export interface PlayerPhysicsState {
 }
 
 export class PlayerController {
-  private position: Vec3 = { x: 0, y: 0, z: -11 };
-  private previousPosition: Vec3 = this.position;
+  private position: Vec3;
+  private previousPosition: Vec3;
   private velocity: Vec3 = { x: 0, y: 0, z: 0 };
   private yaw = 0;
   private pitch = 0;
@@ -30,7 +30,10 @@ export class PlayerController {
   public constructor(
     private maximumHealth: number,
     private readonly config: GameConfig["player"],
+    initialPosition: Vec3 = { x: 0, y: 0, z: -11 },
   ) {
+    this.position = { ...initialPosition };
+    this.previousPosition = { ...initialPosition };
     this.health = maximumHealth;
     this.maximumSpeed = config.maximumSpeed;
   }

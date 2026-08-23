@@ -1,6 +1,7 @@
 import type { ProgressionSnapshot } from "../progression/progressionSystem";
 import type { InputSettings } from "../input/actions";
 import type { GraphicsQuality } from "../rendering/quality";
+import type { RoomSequenceSnapshot } from "../rooms/roomController";
 
 export interface GameSave {
   readonly version: 1;
@@ -9,6 +10,7 @@ export interface GameSave {
   readonly leftHandedControls: boolean;
   readonly inputSettings?: InputSettings;
   readonly graphicsQuality?: GraphicsQuality;
+  readonly roomSequence?: RoomSequenceSnapshot;
 }
 
 export interface StorageAdapter {
@@ -49,6 +51,7 @@ export class SaveRepository {
         record.graphicsQuality === "low" ||
         record.graphicsQuality === "medium" ||
         record.graphicsQuality === "high") &&
+      (record.roomSequence === undefined || this.isRoomSequence(record.roomSequence)) &&
       (record.inputSettings === undefined || this.isInputSettings(record.inputSettings))
     );
   }
@@ -64,5 +67,39 @@ export class SaveRepository {
       typeof record.leftHanded === "boolean" &&
       (record.aimAssist === undefined || typeof record.aimAssist === "boolean")
     );
+  }
+
+  private isRoomSequence(candidate: unknown): candidate is RoomSequenceSnapshot {
+    if (typeof candidate !== "object" || candidate === null) return false;
+    const record = candidate as Record<string, unknown>;
+    if (
+      record.version !== 1 ||
+      typeof record.currentRoomIndex !== "number" ||
+      !Number.isInteger(record.currentRoomIndex) ||
+      record.currentRoomIndex < 0 ||
+      !Array.isArray(record.rooms)
+    ) {
+      return false;
+    }
+    const states = new Set([
+      "Generated",
+      "Waiting",
+      "PlayerEntered",
+      "Locked",
+      "Combat",
+      "Cleared",
+      "Opened",
+    ]);
+    return record.rooms.every((room: unknown) => {
+      if (typeof room !== "object" || room === null) return false;
+      const roomRecord = room as Record<string, unknown>;
+      return (
+        typeof roomRecord.index === "number" &&
+        Number.isInteger(roomRecord.index) &&
+        roomRecord.index >= 0 &&
+        typeof roomRecord.state === "string" &&
+        states.has(roomRecord.state)
+      );
+    });
   }
 }

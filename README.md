@@ -4,10 +4,9 @@ Rapid is the technical foundation for a single-player browser FPS with a full 3D
 camera-facing enemy sprites. The project uses Babylon.js, Havok Physics, Recast Navigation,
 strict TypeScript, Vite, and Vitest without a UI framework.
 
-The current milestone provides one deterministic combat-room sandbox with a complete baseline
-2.5D presentation layer. It is intentionally a foundation rather than a complete game: procedural
-room sequencing, complete enemy attacks, upgrade selection, and production art/audio will be
-implemented incrementally.
+The current milestone provides a deterministic sequence of combat rooms with a complete baseline
+2.5D presentation layer. It is intentionally a foundation rather than a complete game: complete
+enemy attacks, upgrade selection, and production art/audio will be implemented incrementally.
 
 ## Requirements
 
@@ -75,7 +74,7 @@ recommends landscape orientation.
 | `src/player`      | Frame-rate-independent player state and movement                            |
 | `src/combat`      | Weapon timing and balance data                                              |
 | `src/enemies`     | Render-independent enemy archetypes and readable attack phases              |
-| `src/rooms`       | Strict one-way room lifecycle state machine                                 |
+| `src/rooms`       | Central lifecycle controller, deterministic sequence, and restore snapshots |
 | `src/generation`  | Seeded room generation, safety constraints, path check, and fallback layout |
 | `src/progression` | Idempotent room credit, levels, and upgrade choices                         |
 | `src/ui`          | Adaptive DOM HUD and pause overlay                                          |
@@ -96,6 +95,27 @@ shadow processing and the dynamic muzzle light and uses a smaller impact-particl
 
 Procedural layouts use a seeded PRNG, bounded placement attempts, reserved entrance and exit zones,
 overlap rejection, a grid path check, and a known-safe fallback.
+
+## Sequential combat rooms
+
+`RoomController` is the only service allowed to advance the lifecycle:
+`Generated → Waiting → PlayerEntered → Locked → Combat → Cleared → Opened`. Every layout uses the
+stable seed `<base-seed>:room:<index>`, and world-space room offsets are derived from the index.
+
+The entrance trigger is a directional plane inside the doorway. It only accepts an inward crossing
+within the clear opening, so touching it from outside, walking backwards, approaching beside the
+door, or crossing it again cannot restart combat. `PlayerEntered` remains active until the capsule
+is safely beyond the entrance door; only then is the Havok collider enabled and combat begins.
+
+Required enemies are counted per room. Optional enemies and props do not keep the exit locked.
+Clearing the required set advances through `Cleared`, then opens the exit on the following fixed
+simulation step. The current, previous, and next rooms may coexist in one Babylon scene. Once the
+player advances far enough, old room physics bodies, materials, meshes, enemies, and navmesh input
+are disposed and the Recast navigation data is rebuilt from the remaining rooms.
+
+The local save contains the current index and states of loaded rooms. Loading regenerates the same
+layouts from their seeds, restores door state, places the player safely near the current entrance,
+and re-creates the active combat wave when necessary.
 
 ## 2.5D rendering
 
@@ -125,12 +145,14 @@ simulation rate.
 Open the development URL with the following query parameters:
 
 ```text
-/?physicsTestRoom=1&debugPhysics=1
+/?physicsTestRoom=1&debugPhysics=1&debugRooms=1
 ```
 
 `physicsTestRoom=1` selects a deterministic room with a centered doorway, a low step, a tall crate,
 and two barriers. `debugPhysics=1` overlays the player capsule and all active Havok bodies, including
-door colliders. Both flags can also be enabled through `GAME_CONFIG.debug`.
+door colliders. `debugRooms=1` shows the current room ID, state, seed, and all loaded room states.
+The room indicator is enabled by default for this development milestone. All flags can also be
+configured through `GAME_CONFIG.debug`.
 
 ## Assets
 
