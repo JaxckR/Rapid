@@ -45,7 +45,7 @@ export interface GameConfig {
     readonly minimumObstacleSpacing: number;
   };
   readonly rendering: {
-    readonly lowPowerHardwareScaling: number;
+    readonly defaultQuality: "low" | "medium" | "high";
     readonly enemySpriteSize: number;
   };
   readonly debug: {
@@ -101,7 +101,7 @@ export const GAME_CONFIG: GameConfig = Object.freeze({
     minimumObstacleSpacing: 1.4,
   },
   rendering: {
-    lowPowerHardwareScaling: 1.5,
+    defaultQuality: "medium" as const,
     enemySpriteSize: 1.8,
   },
   debug: {

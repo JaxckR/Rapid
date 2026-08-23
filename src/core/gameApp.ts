@@ -9,9 +9,13 @@ import { SaveRepository } from "../persistence/saveRepository";
 import { PlayerController } from "../player/playerController";
 import { ProgressionSystem } from "../progression/progressionSystem";
 import type { SceneRenderer } from "../rendering/sceneRenderer";
+import type { GraphicsQuality } from "../rendering/quality";
+import { recommendedQuality } from "../rendering/quality";
 import { RoomStateMachine } from "../rooms/roomStateMachine";
 import { HudController } from "../ui/hudController";
 import { InputSettingsPanel } from "../ui/inputSettingsPanel";
+import { GraphicsSettingsPanel } from "../ui/graphicsSettingsPanel";
+import { WeaponHud } from "../ui/weaponHud";
 import { GAME_CONFIG, type GameConfig } from "./config";
 import { EventBus } from "./eventBus";
 import type { GameEvents } from "./events";
@@ -26,14 +30,18 @@ export class GameApp {
   private readonly room = new RoomStateMachine();
   private readonly progression: ProgressionSystem;
   private readonly saves = new SaveRepository(window.localStorage);
+  private readonly assets = new AssetResolver();
   private readonly hud = new HudController();
   private readonly inputSettingsPanel: InputSettingsPanel;
+  private readonly graphicsSettingsPanel: GraphicsSettingsPanel;
+  private readonly weaponHud: WeaponHud;
   private readonly loop: FixedStepGameLoop;
   private readonly layout: RoomLayout;
   private renderer: SceneRenderer | undefined;
   private paused = false;
   private completedCurrentRoom = false;
   private readonly seed: string;
+  private graphicsQuality: GraphicsQuality;
 
   public constructor(
     private readonly canvas: HTMLCanvasElement,
@@ -41,6 +49,12 @@ export class GameApp {
   ) {
     const save = this.saves.load();
     this.seed = save?.seed ?? "rapid-foundation-001";
+    const navigatorWithMemory = navigator as Navigator & { readonly deviceMemory?: number };
+    this.graphicsQuality =
+      save?.graphicsQuality ??
+      (navigator.hardwareConcurrency > 0
+        ? recommendedQuality(navigator.hardwareConcurrency, navigatorWithMemory.deviceMemory ?? 8)
+        : config.rendering.defaultQuality);
     this.progression = new ProgressionSystem(config.room.ordinaryRoomsPerLevel, save?.progression);
     const inputSettings: InputSettings = {
       mouseSensitivity:
@@ -69,6 +83,12 @@ export class GameApp {
       },
       () => this.input.requestPauseToggle(),
     );
+    this.graphicsSettingsPanel = new GraphicsSettingsPanel(this.graphicsQuality, (quality) => {
+      this.graphicsQuality = quality;
+      this.renderer?.setQuality(quality);
+      this.persist();
+    });
+    this.weaponHud = new WeaponHud(this.assets);
     this.player = new PlayerController(config.player.maximumHealth, config.player);
     this.weapon = new WeaponSystem(config.weapon);
     this.layout = this.usePhysicsTestRoom()
@@ -96,10 +116,12 @@ export class GameApp {
     const { SceneRenderer } = await import("../rendering/sceneRenderer");
     this.renderer = await SceneRenderer.create(
       this.canvas,
-      new AssetResolver(),
+      this.assets,
       this.config,
       this.layout,
+      this.graphicsQuality,
     );
+    await this.weaponHud.initialize();
     window.addEventListener("resize", this.onResize);
     this.loop.start();
   }
@@ -108,6 +130,8 @@ export class GameApp {
     this.loop.stop();
     this.input.dispose();
     this.inputSettingsPanel.dispose();
+    this.graphicsSettingsPanel.dispose();
+    this.weaponHud.dispose();
     this.events.clear();
     this.enemies.dispose();
     this.renderer?.dispose();
@@ -156,6 +180,8 @@ export class GameApp {
       this.enemies.update(player.position, deltaSeconds);
       const shot = this.weapon.tryFire(actions.fire);
       if (shot !== undefined) {
+        this.weaponHud.playFire();
+        this.renderer?.playWeaponFire();
         this.events.emit("combat:fired", { damage: shot.damage });
         const result = this.enemies.applyShot(
           player.position,
@@ -164,11 +190,15 @@ export class GameApp {
           shot.damage,
           (from, to) => this.renderer?.isOccluded(from, to) ?? false,
         );
+        if (result.hitEnemyId !== undefined) this.renderer?.playHitEffect(result.hitEnemyId);
         if (result.defeatedEnemyId !== undefined) {
           this.events.emit("enemy:defeated", { enemyId: result.defeatedEnemyId });
         }
       }
       if (this.enemies.remainingRequiredEnemies === 0) this.completeRoom();
+    }
+    if (this.room.state === "Opened" && this.enemies.snapshots().length > 0) {
+      this.enemies.update(player.position, deltaSeconds);
     }
   }
 
@@ -188,6 +218,7 @@ export class GameApp {
       progression: this.progression.snapshot(),
       leftHandedControls: inputSettings.leftHanded,
       inputSettings,
+      graphicsQuality: this.graphicsQuality,
     });
   }
 

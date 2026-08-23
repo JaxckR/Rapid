@@ -37,20 +37,40 @@ export const ASSET_MANIFEST = {
     type: "sprite",
     purpose: "Flying enemy attack animation",
   },
+  "sprite.enemy.flying.atlas": {
+    path: "/assets/sprites/enemies/flying/atlas.png",
+    type: "sprite",
+    purpose: "Flying enemy eight-direction animation atlas",
+  },
   "sprite.enemy.toxic.attack": {
     path: "/assets/sprites/enemies/toxic/attack.png",
     type: "sprite",
     purpose: "Toxic enemy attack animation",
+  },
+  "sprite.enemy.toxic.atlas": {
+    path: "/assets/sprites/enemies/toxic/atlas.png",
+    type: "sprite",
+    purpose: "Toxic enemy eight-direction animation atlas",
   },
   "sprite.enemy.jumper.jump": {
     path: "/assets/sprites/enemies/jumper/jump.png",
     type: "sprite",
     purpose: "Jumping enemy leap animation",
   },
+  "sprite.enemy.jumper.atlas": {
+    path: "/assets/sprites/enemies/jumper/atlas.png",
+    type: "sprite",
+    purpose: "Jumping enemy eight-direction animation atlas",
+  },
   "sprite.enemy.shooter.attack": {
     path: "/assets/sprites/enemies/shooter/attack.png",
     type: "sprite",
     purpose: "Shooter enemy attack animation",
+  },
+  "sprite.enemy.shooter.atlas": {
+    path: "/assets/sprites/enemies/shooter/atlas.png",
+    type: "sprite",
+    purpose: "Shooter enemy eight-direction animation atlas",
   },
   "sprite.weapon.default": {
     path: "/assets/sprites/weapons/default_weapon.png",
