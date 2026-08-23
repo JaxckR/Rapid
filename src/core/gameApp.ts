@@ -2,15 +2,15 @@ import { AssetResolver } from "../assets/assetResolver";
 import { WeaponSystem } from "../combat/weaponSystem";
 import { EnemySystem } from "../enemies/enemySystem";
 import { RoomGenerator, type RoomLayout } from "../generation/roomGenerator";
-import { DesktopInput } from "../input/desktopInput";
+import type { InputSettings } from "../input/actions";
 import { InputSystem } from "../input/inputSystem";
-import { TouchInput } from "../input/touchInput";
 import { SaveRepository } from "../persistence/saveRepository";
 import { PlayerController } from "../player/playerController";
 import { ProgressionSystem } from "../progression/progressionSystem";
 import type { SceneRenderer } from "../rendering/sceneRenderer";
 import { RoomStateMachine } from "../rooms/roomStateMachine";
 import { HudController } from "../ui/hudController";
+import { InputSettingsPanel } from "../ui/inputSettingsPanel";
 import { GAME_CONFIG, type GameConfig } from "./config";
 import { EventBus } from "./eventBus";
 import type { GameEvents } from "./events";
@@ -27,6 +27,7 @@ export class GameApp {
   private readonly progression: ProgressionSystem;
   private readonly saves = new SaveRepository(window.localStorage);
   private readonly hud = new HudController();
+  private readonly inputSettingsPanel: InputSettingsPanel;
   private readonly loop: FixedStepGameLoop;
   private readonly layout: RoomLayout;
   private renderer: SceneRenderer | undefined;
@@ -40,9 +41,25 @@ export class GameApp {
   ) {
     const save = this.saves.load();
     this.seed = save?.seed ?? "rapid-foundation-001";
-    document.body.classList.toggle("left-handed", save?.leftHandedControls ?? false);
     this.progression = new ProgressionSystem(config.room.ordinaryRoomsPerLevel, save?.progression);
-    this.input = new InputSystem([new DesktopInput(canvas), new TouchInput(canvas)]);
+    const inputSettings: InputSettings = save?.inputSettings ?? {
+      mouseSensitivity: config.input.defaultMouseSensitivity,
+      touchSensitivity: config.input.defaultTouchSensitivity,
+      leftHanded: save?.leftHandedControls ?? false,
+    };
+    this.input = new InputSystem(canvas, {
+      settings: inputSettings,
+      joystickRadiusPixels: config.input.joystickRadiusPixels,
+      maximumLookDeltaPixels: config.input.maximumLookDeltaPixels,
+    });
+    this.inputSettingsPanel = new InputSettingsPanel(
+      this.input.settings,
+      (settings) => {
+        this.input.updateSettings(settings);
+        this.persist();
+      },
+      () => this.input.requestPauseToggle(),
+    );
     this.player = new PlayerController(
       config.player.maximumHealth,
       config.player.movementSpeed,
@@ -83,6 +100,7 @@ export class GameApp {
   public dispose(): void {
     this.loop.stop();
     this.input.dispose();
+    this.inputSettingsPanel.dispose();
     this.events.clear();
     this.enemies.dispose();
     this.renderer?.dispose();
@@ -91,11 +109,8 @@ export class GameApp {
 
   private update(deltaSeconds: number): void {
     const actions = this.input.sample();
-    if (actions.pause) {
-      this.paused = !this.paused;
-      this.hud.setPaused(this.paused);
-      this.events.emit("game:pause-changed", { paused: this.paused });
-    }
+    if (actions.pause === "force") this.setPaused(true);
+    else if (actions.pause === "toggle") this.setPaused(!this.paused);
     if (this.paused) return;
 
     this.player.update(actions, deltaSeconds, (position) => this.isWalkable(position));
@@ -137,12 +152,25 @@ export class GameApp {
     this.completedCurrentRoom = true;
     this.events.emit("room:changed", { state: this.room.state });
     this.progression.completeRoom(`${this.seed}:room-0`, false);
+    this.persist();
+  }
+
+  private persist(): void {
+    const inputSettings = this.input.settings;
     this.saves.save({
       version: 1,
       seed: this.seed,
       progression: this.progression.snapshot(),
-      leftHandedControls: document.body.classList.contains("left-handed"),
+      leftHandedControls: inputSettings.leftHanded,
+      inputSettings,
     });
+  }
+
+  private setPaused(paused: boolean): void {
+    if (paused === this.paused) return;
+    this.paused = paused;
+    this.hud.setPaused(paused);
+    this.events.emit("game:pause-changed", { paused });
   }
 
   private render(): void {

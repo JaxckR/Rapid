@@ -1,4 +1,15 @@
-export type { InputActions, InputSource } from "./actions";
+export {
+  EMPTY_INPUT_ACTION_STATE,
+  INPUT_ACTIONS,
+  type InputAction,
+  type InputActionState,
+  type InputMode,
+  type InputSettings,
+  type InputSource,
+  type PauseIntent,
+} from "./actions";
+export { DesktopActionMapper } from "./desktopActionMapper";
 export { DesktopInput } from "./desktopInput";
 export { InputSystem } from "./inputSystem";
+export { TouchActionMapper } from "./touchActionMapper";
 export { TouchInput } from "./touchInput";

@@ -44,18 +44,24 @@ Desktop:
 - Mouse: look (click the game view to acquire Pointer Lock)
 - Left mouse button: fire
 - E: interact
-- Escape: pause
+- Escape: pause and release Pointer Lock
 
 Touch devices:
 
 - Left virtual stick: move
-- Swipe on the game view: look
+- Swipe on the free right half of the game view: look
 - FIRE, USE, and pause buttons: actions
-- Multiple simultaneous pointers are supported
+- Movement, camera rotation, and firing work simultaneously through independent pointers
 
-The interface accounts for safe-area insets and recommends landscape orientation. Add the
-`left-handed` class to `document.body` to swap the primary movement and fire controls; this setting
-is already represented in the save schema for a future options screen.
+Input is exposed to gameplay only as the device-independent `move`, `look`, `fire`, `interact`, and
+`pause` actions. The active layout is selected from input capabilities and the most recently used
+pointer type, so hybrid devices can switch between mouse and touch without reloading. Losing focus
+or hiding the tab pauses the game automatically.
+
+The pause panel contains independent mouse and touch sensitivity controls plus a left-handed mode.
+The latter swaps the movement/look sides and action buttons. These settings are saved locally. The
+touch layout accounts for safe-area insets, suppresses browser gestures over the game canvas, and
+recommends landscape orientation.
 
 ## Architecture
 

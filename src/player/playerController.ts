@@ -1,5 +1,5 @@
 import { clamp, type Vec3 } from "../core/math";
-import type { InputActions } from "../input/actions";
+import type { InputActionState } from "../input/actions";
 
 export interface PlayerSnapshot {
   readonly position: Vec3;
@@ -24,7 +24,7 @@ export class PlayerController {
   }
 
   public update(
-    actions: InputActions,
+    actions: InputActionState,
     deltaSeconds: number,
     isWalkable: (position: Vec3) => boolean = () => true,
   ): void {

@@ -1,10 +1,12 @@
 import type { ProgressionSnapshot } from "../progression/progressionSystem";
+import type { InputSettings } from "../input/actions";
 
 export interface GameSave {
   readonly version: 1;
   readonly seed: string;
   readonly progression: ProgressionSnapshot;
   readonly leftHandedControls: boolean;
+  readonly inputSettings?: InputSettings;
 }
 
 export interface StorageAdapter {
@@ -40,7 +42,20 @@ export class SaveRepository {
       typeof record.seed === "string" &&
       typeof record.progression === "object" &&
       record.progression !== null &&
-      typeof record.leftHandedControls === "boolean"
+      typeof record.leftHandedControls === "boolean" &&
+      (record.inputSettings === undefined || this.isInputSettings(record.inputSettings))
+    );
+  }
+
+  private isInputSettings(candidate: unknown): candidate is InputSettings {
+    if (typeof candidate !== "object" || candidate === null) return false;
+    const record = candidate as Record<string, unknown>;
+    return (
+      typeof record.mouseSensitivity === "number" &&
+      Number.isFinite(record.mouseSensitivity) &&
+      typeof record.touchSensitivity === "number" &&
+      Number.isFinite(record.touchSensitivity) &&
+      typeof record.leftHanded === "boolean"
     );
   }
 }

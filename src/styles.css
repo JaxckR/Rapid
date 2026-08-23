@@ -22,6 +22,7 @@ body,
   height: 100%;
   margin: 0;
   overflow: hidden;
+  overscroll-behavior: none;
 }
 
 #game-shell {
@@ -49,6 +50,7 @@ body,
   letter-spacing: 0.08em;
   text-shadow: 0 2px 3px #000;
   pointer-events: none;
+  z-index: 2;
 }
 
 #crosshair {
@@ -65,7 +67,15 @@ body,
 }
 
 #touch-controls {
+  position: absolute;
+  inset: 0;
   display: none;
+  pointer-events: none;
+  z-index: 4;
+}
+
+body[data-input-mode="touch"] #touch-controls:not([hidden]) {
+  display: block;
 }
 
 #move-zone,
@@ -78,6 +88,13 @@ body,
   color: #fff;
   background: rgb(18 22 34 / 58%);
   backdrop-filter: blur(3px);
+}
+
+#move-zone,
+#fire-button,
+#interact-button,
+#pause-button {
+  pointer-events: auto;
 }
 
 #move-zone {
@@ -132,6 +149,7 @@ body,
   gap: 10px;
   text-align: center;
   background: rgb(6 7 11 / 88%);
+  z-index: 10;
 }
 
 #pause-panel[hidden],
@@ -145,10 +163,46 @@ body,
   text-transform: uppercase;
 }
 
-@media (hover: none), (pointer: coarse) {
-  #touch-controls {
-    display: block;
-  }
+#input-settings {
+  display: grid;
+  width: min(420px, calc(100vw - 48px));
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid rgb(245 242 223 / 24%);
+  border-radius: 12px;
+  background: rgb(18 22 34 / 72%);
+  text-align: left;
+}
+
+#input-settings label:not(.checkbox-setting) {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+#input-settings input[type="range"] {
+  width: 100%;
+  accent-color: #e55b43;
+}
+
+.checkbox-setting {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+#resume-button {
+  justify-self: center;
+  min-width: 140px;
+  padding: 10px 22px;
+  border: 1px solid #f1d77a;
+  border-radius: 8px;
+  color: #090b12;
+  background: #f1d77a;
+  font: inherit;
+  font-weight: 800;
+  text-transform: uppercase;
 }
 
 @media (orientation: portrait) and (max-width: 900px) {
@@ -178,4 +232,14 @@ body.left-handed #move-zone {
 body.left-handed #fire-button {
   right: auto;
   left: calc(28px + var(--safe-left));
+}
+
+body.left-handed #interact-button {
+  right: auto;
+  left: calc(128px + var(--safe-left));
+}
+
+body.left-handed #pause-button {
+  right: auto;
+  left: calc(16px + var(--safe-left));
 }
