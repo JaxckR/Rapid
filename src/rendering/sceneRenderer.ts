@@ -17,7 +17,6 @@ import { HavokPlugin } from "@babylonjs/core/Physics/v2/Plugins/havokPlugin.js";
 import { PhysicsAggregate } from "@babylonjs/core/Physics/v2/physicsAggregate.js";
 import "@babylonjs/core/Physics/physicsEngineComponent.js";
 import { Scene } from "@babylonjs/core/scene.js";
-import Recast from "recast-detour";
 import type { AssetId } from "../assets/assetManifest";
 import type { AssetResolver } from "../assets/assetResolver";
 import type { GameConfig } from "../core/config";
@@ -26,6 +25,7 @@ import type { EnemyArchetype, EnemySnapshot } from "../enemies/enemySystem";
 import type { RoomLayout } from "../generation/roomGenerator";
 import type { PlayerSnapshot } from "../player/playerController";
 import type { RoomState } from "../rooms/roomStateMachine";
+import { loadRecast } from "./recastLoader";
 
 const ENEMY_COLORS: Readonly<Record<EnemyArchetype, Color3>> = {
   flying: Color3.FromHexString("#d95ce5"),
@@ -228,7 +228,7 @@ export class SceneRenderer {
   }
 
   private async initializeNavigation(meshes: Mesh[]): Promise<void> {
-    const recast = await Recast();
+    const recast = await loadRecast();
     const navigation = new RecastJSPlugin(recast);
     navigation.setTimeStep(this.config.simulation.fixedStepSeconds);
     navigation.setMaximumSubStepCount(this.config.simulation.maximumSubSteps);
