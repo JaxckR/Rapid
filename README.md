@@ -93,8 +93,19 @@ with the low graphics profile. The pause panel can switch between low, medium, a
 restart: effective device pixel ratio is capped at 1, 1.5, and 2 respectively. Low quality disables
 shadow processing and the dynamic muzzle light and uses a smaller impact-particle budget.
 
-Procedural layouts use a seeded PRNG, bounded placement attempts, reserved entrance and exit zones,
-overlap rejection, a grid path check, and a known-safe fallback.
+Procedural layouts use a seeded PRNG and select between `open_arena`, `central_gate`, and
+`offset_bays` templates. The generator reserves the entrance, exit, player start, inward trigger,
+and enemy spawn areas before placing crates, barriers, and wire barriers. A player-radius-aware
+occupancy grid rejects walls and overlaps, a breadth-first search preserves an entrance-to-exit
+route, and a connected-open-cell check guarantees useful combat space. Both room attempts and
+per-obstacle attempts are bounded; exhausted generation always switches to a known-safe open-arena
+fallback.
+
+Obstacle height is greater than the configured player step height. Babylon reuses one source mesh
+per obstacle kind through instances, while each placement receives a simple static Havok box
+collider. Structural blocks and obstacle colliders are included when Recast is rebuilt, so their
+footprints are unavailable to ground enemies. Layout data—including template, occupancy, protected
+zones, route, attempt count, and fallback status—is deterministic for a given room seed.
 
 ## Sequential combat rooms
 
@@ -145,14 +156,15 @@ simulation rate.
 Open the development URL with the following query parameters:
 
 ```text
-/?physicsTestRoom=1&debugPhysics=1&debugRooms=1
+/?physicsTestRoom=1&debugPhysics=1&debugRooms=1&debugGeneration=1
 ```
 
 `physicsTestRoom=1` selects a deterministic room with a centered doorway, a low step, a tall crate,
 and two barriers. `debugPhysics=1` overlays the player capsule and all active Havok bodies, including
-door colliders. `debugRooms=1` shows the current room ID, state, seed, and all loaded room states.
-The room indicator is enabled by default for this development milestone. All flags can also be
-configured through `GAME_CONFIG.debug`.
+door colliders. `debugRooms=1` shows the room state, seed, chosen template, generation attempt count,
+combat-space size, and fallback status. `debugGeneration=1` overlays the occupancy grid (red blocked
+cells), protected zones (green), and the validated route (yellow). The room indicator is enabled by
+default for this development milestone. All flags can also be configured through `GAME_CONFIG.debug`.
 
 ## Assets
 
