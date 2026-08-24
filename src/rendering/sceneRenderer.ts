@@ -28,6 +28,7 @@ import type { AssetResolver } from "../assets/assetResolver";
 import type { GameConfig } from "../core/config";
 import type { Vec3 } from "../core/math";
 import type { EnemyArchetype, EnemySnapshot } from "../enemies/enemySystem";
+import type { ObstacleKind, RoomLayout } from "../generation/roomGenerator";
 import type { PlayerPhysicsState, PlayerSnapshot } from "../player/playerController";
 import type { LoadedRoom } from "../rooms/roomController";
 import type { RoomState } from "../rooms/roomStateMachine";
@@ -386,38 +387,86 @@ export class SceneRenderer {
       this.addStaticPhysics(rendered, wall, PhysicsShapeType.BOX);
     }
 
-    for (const obstacle of layout.obstacles) {
+    for (const block of layout.structuralBlocks) {
       const mesh = MeshBuilder.CreateBox(
-        `${room.id}:${obstacle.id}`,
-        { width: obstacle.size.x, height: obstacle.size.y, depth: obstacle.size.z },
+        `${room.id}:${block.id}`,
+        { width: block.size.x, height: block.size.y, depth: block.size.z },
         this.scene,
       );
+      mesh.position.set(block.position.x, block.position.y, block.position.z + room.worldOffsetZ);
+      mesh.material = wallMaterial;
+      mesh.metadata = { blocksShots: true };
+      mesh.receiveShadows = true;
+      this.shadowGenerator?.addShadowCaster(mesh);
+      rendered.meshes.add(mesh);
+      rendered.navigationMeshes.push(mesh);
+      this.addStaticPhysics(rendered, mesh, PhysicsShapeType.BOX);
+    }
+
+    const obstacleSources = new Map<ObstacleKind, Mesh>();
+    const obstacleMaterials = new Map<ObstacleKind, StandardMaterial>();
+    for (const obstacle of layout.obstacles) {
+      let material = obstacleMaterials.get(obstacle.kind);
+      if (material === undefined) {
+        material = new StandardMaterial(`${room.id}:${obstacle.kind}-material`, this.scene);
+        material.diffuseColor =
+          obstacle.kind === "crate"
+            ? Color3.FromHexString("#745237")
+            : obstacle.kind === "barrier"
+              ? Color3.FromHexString("#626873")
+              : Color3.FromHexString("#58605f");
+        obstacleMaterials.set(obstacle.kind, material);
+        rendered.materials.add(material);
+      }
+      let source = obstacleSources.get(obstacle.kind);
+      let mesh: AbstractMesh;
+      if (source === undefined) {
+        source = MeshBuilder.CreateBox(
+          `${room.id}:${obstacle.kind}-source`,
+          { size: 1 },
+          this.scene,
+        );
+        mesh = source;
+        obstacleSources.set(obstacle.kind, source);
+        const modelId: AssetId =
+          obstacle.kind === "crate"
+            ? "model.obstacle.crate"
+            : obstacle.kind === "barrier"
+              ? "model.obstacle.barrier"
+              : "model.obstacle.wire_barrier";
+        void this.applyModel(source, modelId);
+      } else {
+        mesh = source.createInstance(`${room.id}:${obstacle.id}`);
+      }
       mesh.position.set(
         obstacle.position.x,
         obstacle.position.y,
         obstacle.position.z + room.worldOffsetZ,
       );
-      const material = new StandardMaterial(`${room.id}:${obstacle.id}-material`, this.scene);
-      material.diffuseColor =
-        obstacle.kind === "crate"
-          ? Color3.FromHexString("#745237")
-          : Color3.FromHexString("#626873");
+      mesh.scaling.set(obstacle.size.x, obstacle.size.y, obstacle.size.z);
+      mesh.rotation.y = obstacle.rotationY;
       mesh.material = material;
       mesh.metadata = { blocksShots: true };
       mesh.receiveShadows = true;
       this.shadowGenerator?.addShadowCaster(mesh);
       rendered.meshes.add(mesh);
-      rendered.materials.add(material);
-      rendered.navigationMeshes.push(mesh);
-      this.addStaticPhysics(rendered, mesh, PhysicsShapeType.BOX);
-      const modelId: AssetId =
-        obstacle.kind === "crate"
-          ? "model.obstacle.crate"
-          : obstacle.kind === "barrier"
-            ? "model.obstacle.barrier"
-            : "model.obstacle.wire_barrier";
-      void this.applyModel(mesh, modelId);
+
+      const collider = MeshBuilder.CreateBox(
+        `${room.id}:${obstacle.id}:collider`,
+        { width: obstacle.size.x, height: obstacle.size.y, depth: obstacle.size.z },
+        this.scene,
+      );
+      collider.position.copyFrom(mesh.position);
+      collider.rotation.y = obstacle.rotationY;
+      collider.visibility = 0;
+      collider.isPickable = false;
+      rendered.meshes.add(collider);
+      rendered.navigationMeshes.push(collider);
+      this.addStaticPhysics(rendered, collider, PhysicsShapeType.BOX);
     }
+
+    if (this.generationDebugEnabled())
+      this.createGenerationDebug(rendered, layout, room.worldOffsetZ);
 
     rendered.entranceDoor = this.createDoor(rendered, `${room.id}:entrance-door`, room.entranceZ);
     rendered.exitDoor = this.createDoor(rendered, `${room.id}:exit-door`, room.exitZ);
@@ -463,9 +512,9 @@ export class SceneRenderer {
       cs: 0.3,
       ch: 0.2,
       walkableSlopeAngle: 35,
-      walkableHeight: 10,
-      walkableClimb: 2,
-      walkableRadius: 2,
+      walkableHeight: this.config.player.colliderHeight,
+      walkableClimb: this.config.player.stepHeight,
+      walkableRadius: this.config.player.colliderRadius,
       maxEdgeLen: 12,
       maxSimplificationError: 1.3,
       minRegionArea: 8,
@@ -752,6 +801,112 @@ export class SceneRenderer {
       this.config.debug.showPhysicsColliders ||
       new URLSearchParams(window.location.search).get("debugPhysics") === "1"
     );
+  }
+
+  private generationDebugEnabled(): boolean {
+    return (
+      this.config.debug.showGenerationGrid ||
+      new URLSearchParams(window.location.search).get("debugGeneration") === "1"
+    );
+  }
+
+  private createGenerationDebug(
+    rendered: RenderedRoom,
+    layout: RoomLayout,
+    worldOffsetZ: number,
+  ): void {
+    const gridLines: Vector3[][] = [];
+    const halfWidth = layout.width / 2;
+    const halfLength = layout.length / 2;
+    for (let column = 0; column <= layout.occupancy.columns; column += 1) {
+      const x = -halfWidth + column * layout.occupancy.cellSize;
+      gridLines.push([
+        new Vector3(x, 0.018, worldOffsetZ - halfLength),
+        new Vector3(x, 0.018, worldOffsetZ + halfLength),
+      ]);
+    }
+    for (let row = 0; row <= layout.occupancy.rows; row += 1) {
+      const z = worldOffsetZ - halfLength + row * layout.occupancy.cellSize;
+      gridLines.push([new Vector3(-halfWidth, 0.018, z), new Vector3(halfWidth, 0.018, z)]);
+    }
+    const grid = MeshBuilder.CreateLineSystem(
+      `${rendered.id}:generation-grid`,
+      { lines: gridLines },
+      this.scene,
+    );
+    grid.color = Color3.FromHexString("#245666");
+    grid.isPickable = false;
+    rendered.meshes.add(grid);
+
+    const blockedMaterial = new StandardMaterial(
+      `${rendered.id}:blocked-debug-material`,
+      this.scene,
+    );
+    blockedMaterial.diffuseColor = Color3.FromHexString("#c53c45");
+    blockedMaterial.emissiveColor = Color3.FromHexString("#4c1016");
+    blockedMaterial.alpha = 0.38;
+    rendered.materials.add(blockedMaterial);
+    for (let row = 0; row < layout.occupancy.rows; row += 1) {
+      for (let column = 0; column < layout.occupancy.columns; column += 1) {
+        if (!layout.occupancy.blocked[row * layout.occupancy.columns + column]) continue;
+        const cell = MeshBuilder.CreateBox(
+          `${rendered.id}:blocked-${column}-${row}`,
+          {
+            width: layout.occupancy.cellSize * 0.88,
+            height: 0.025,
+            depth: layout.occupancy.cellSize * 0.88,
+          },
+          this.scene,
+        );
+        cell.position.set(
+          -halfWidth + (column + 0.5) * layout.occupancy.cellSize,
+          0.035,
+          worldOffsetZ - halfLength + (row + 0.5) * layout.occupancy.cellSize,
+        );
+        cell.material = blockedMaterial;
+        cell.isPickable = false;
+        rendered.meshes.add(cell);
+      }
+    }
+
+    const protectedMaterial = new StandardMaterial(
+      `${rendered.id}:protected-debug-material`,
+      this.scene,
+    );
+    protectedMaterial.diffuseColor = Color3.FromHexString("#43d98c");
+    protectedMaterial.emissiveColor = Color3.FromHexString("#124f34");
+    protectedMaterial.alpha = 0.28;
+    protectedMaterial.wireframe = true;
+    rendered.materials.add(protectedMaterial);
+    for (const zone of layout.protectedZones) {
+      const mesh = MeshBuilder.CreateBox(
+        `${rendered.id}:protected:${zone.id}`,
+        { width: zone.size.x, height: 0.08, depth: zone.size.z },
+        this.scene,
+      );
+      mesh.position.set(zone.center.x, 0.08, zone.center.z + worldOffsetZ);
+      mesh.material = protectedMaterial;
+      mesh.isPickable = false;
+      rendered.meshes.add(mesh);
+    }
+
+    const path = MeshBuilder.CreateLines(
+      `${rendered.id}:generation-path`,
+      {
+        points: layout.path.map(
+          (cell) =>
+            new Vector3(
+              -halfWidth + (cell.column + 0.5) * layout.occupancy.cellSize,
+              0.12,
+              worldOffsetZ - halfLength + (cell.row + 0.5) * layout.occupancy.cellSize,
+            ),
+        ),
+      },
+      this.scene,
+    );
+    path.color = Color3.FromHexString("#ffe06a");
+    path.isPickable = false;
+    rendered.meshes.add(path);
   }
 
   private updateMuzzleLight(deltaSeconds: number): void {

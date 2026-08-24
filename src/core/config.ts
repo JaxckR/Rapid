@@ -48,6 +48,9 @@ export interface GameConfig {
     readonly maximumAttempts: number;
     readonly obstacleCount: number;
     readonly minimumObstacleSpacing: number;
+    readonly placementAttemptsPerObstacle: number;
+    readonly gridCellSize: number;
+    readonly minimumCombatAreaCells: number;
   };
   readonly rendering: {
     readonly defaultQuality: "low" | "medium" | "high";
@@ -57,6 +60,7 @@ export interface GameConfig {
     readonly showPhysicsColliders: boolean;
     readonly usePhysicsTestRoom: boolean;
     readonly showRoomState: boolean;
+    readonly showGenerationGrid: boolean;
   };
 }
 
@@ -110,6 +114,9 @@ export const GAME_CONFIG: GameConfig = Object.freeze({
     maximumAttempts: 80,
     obstacleCount: 8,
     minimumObstacleSpacing: 1.4,
+    placementAttemptsPerObstacle: 14,
+    gridCellSize: 1,
+    minimumCombatAreaCells: 54,
   },
   rendering: {
     defaultQuality: "medium" as const,
@@ -119,5 +126,6 @@ export const GAME_CONFIG: GameConfig = Object.freeze({
     showPhysicsColliders: false,
     usePhysicsTestRoom: false,
     showRoomState: true,
+    showGenerationGrid: false,
   },
 });

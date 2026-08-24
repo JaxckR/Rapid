@@ -11,6 +11,7 @@ export class RoomDebugIndicator {
   public update(current: LoadedRoom, loaded: readonly LoadedRoom[]): void {
     if (this.element.hidden) return;
     const loadedStates = loaded.map((room) => `#${room.index}:${room.state}`).join(" · ");
-    this.element.textContent = `ROOM DEBUG · ${current.id} · ${current.state} · ${current.seed} · [${loadedStates}]`;
+    const generation = `${current.layout.template} · attempts:${current.layout.generationAttempts} · combat:${current.layout.combatAreaCells}${current.layout.usedFallback ? " · FALLBACK" : ""}`;
+    this.element.textContent = `ROOM DEBUG · ${current.id} · ${current.state} · ${current.seed} · ${generation} · [${loadedStates}]`;
   }
 }
